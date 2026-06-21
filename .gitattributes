@@ -1,0 +1,9 @@
+# บังคับ line ending ให้สม่ำเสมอข้าม platform (เงียบ warning LF/CRLF)
+* text=auto eol=lf
+
+# Windows batch ต้องเป็น CRLF จึงจะรันบน cmd ได้
+*.bat text eol=crlf
+
+# binary — ห้าม normalize
+*.jar binary
+*.png binary

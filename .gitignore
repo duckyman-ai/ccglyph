@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+
+# Kotlin compiler incremental metadata + IntelliJ Platform Gradle Plugin 2.x IDE cache
+.kotlin/
+.intellijPlatform/
+out/
+
+# IntelliJ / IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# JVM diagnostic dumps (javacore/Snap traces from J9/JBR; HotSpot hs_err) — accidental crash artifacts, never source
+javacore*.txt
+Snap.*.trc
+hs_err_pid*
+
+# Claude Code — local-only (overrides + internal project notes; not published)
+.claude/settings.local.json
+/CLAUDE.md
+
+# Local reference screenshots (not plugin source)
+/Screenshot*.png

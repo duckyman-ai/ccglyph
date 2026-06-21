@@ -1,0 +1,67 @@
+<idea-plugin>
+    <id>com.duckyman.plugin.termglyph</id>
+    <name>TermGlyph</name>
+    <version>1.0.0</version>
+    <vendor url="https://github.com/duckyman-ai/termglyph">Duckyman</vendor>
+
+    <description><![CDATA[
+        A terminal tool window for IntelliJ-based IDEs that renders <b>Claude Code</b> cleanly — fixing the
+        overlapping, hard-to-read text — and handles complex scripts (Thai, emoji) correctly.<br/><br/>
+        It runs <b>xterm.js</b> (Unicode 11) inside the IDE's JCEF browser, giving you a familiar, fast terminal with:
+        <ul>
+        <li><b>Clean rendering</b> — Claude Code's input box, borders, and dense output display without overlapping; Thai/emoji/wide chars compose correctly.</li>
+        <li><b>Find</b> (Cmd/Ctrl+F), <b>copy/paste</b>, and a native right-click menu.</li>
+        <li><b>Multiple tabs plus native side-by-side split</b> (Split Right/Down), like the IDE's own terminal.</li>
+        <li><b>Tab icons and titles</b> that follow the running process (e.g. Claude Code).</li>
+        <li><b>Theme</b> — follows your IDE editor color scheme; ANSI palette from Console Colors.</li>
+        </ul>
+        Works wherever the <b>Web Browser (JCEF)</b> plugin is available (IntelliJ IDEA Ultimate and most
+        professional IDEs; installable on Android Studio 2026.1+).
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.0</b> — first Marketplace release.<br/>
+        • Renders Thai combining characters (vowels/tone marks) and emoji correctly via xterm.js Unicode 11.<br/>
+        • Multi-tab terminal plus native side-by-side split (Split Right/Down/Change Orientation/Unsplit).<br/>
+        • Find in terminal (Cmd/Ctrl+F), copy/paste, native right-click menu.<br/>
+        • Tab icons and titles follow the running process (Claude Code, etc.); OSC title support.<br/>
+        • Theme follows the IDE editor color scheme; ANSI palette from Console Colors.<br/>
+        • Output batching, anti-freeze repaints, close-confirmation dialog.<br/>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <!-- The terminal plugin is bundled with every IntelliJ-based IDE. Required because we read its font
+         settings (TerminalFontSettingsService — column width, for the "follow IDE" defaults) and its shell
+         option (TerminalLocalOptions). These classes are on the compile classpath via bundledPlugin(...) in
+         build.gradle.kts; this <depends> puts them on the runtime classpath (without it: NoClassDefFoundError
+         at TerminalBrowserPanel init). -->
+    <depends>org.jetbrains.plugins.terminal</depends>
+    <depends optional="true">com.intellij.modules.jcef</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+            id="TermGlyph"
+            anchor="bottom"
+            factoryClass="com.duckyman.plugin.termglyph.TermGlyphTerminalFactory"
+            icon="/icons/term-glyph.svg"
+            canCloseContents="true"/>
+
+        <!-- Auto-activate the tool window when a project opens -->
+        <projectActivity implementation="com.duckyman.plugin.termglyph.TermGlyphStartupActivity"/>
+
+        <!-- Global terminal settings, persisted in termglyph.xml -->
+        <applicationService
+            serviceImplementation="com.duckyman.plugin.termglyph.TermGlyphSettings"/>
+        <applicationConfigurable
+            groupId="tools"
+            displayName="TermGlyph"
+            id="termglyph.settings"
+            instance="com.duckyman.plugin.termglyph.TermGlyphSettingsConfigurable"/>
+
+        <!-- Native side-by-side split (Split Right/Down, etc. — the platform's own actions, like the built-in terminal).
+             Only effective on IDE builds that have this extension point (2024.2+); ignored on older builds. -->
+        <toolWindow.splitContentProvider
+            toolWindowId="TermGlyph"
+            implementationClass="com.duckyman.plugin.termglyph.TermGlyphSplitContentProvider"/>
+    </extensions>
+</idea-plugin>

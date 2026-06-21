@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #1e1e1e; overflow: hidden; }
+  /* Use horizontal margin instead of padding — the WebGL renderer does not respect padding on .xterm (canvas is flush-left)
+     but FitAddon measures the parent (#terminal) width reduced by the margin and recomputes cols accordingly */
+  /* A small top margin (acts like padding-top) with a matching height reduction → prevents overflow into a scrollbar;
+     the WebGL renderer does not respect padding on .xterm at all, so we use margin on #terminal instead */
+  #terminal { width: calc(100% - 20px); height: calc(100% - 6px); margin: 6px 10px 0; }
+
+  /* ===== IDE-style terminal scrollbar (thin / overlay / appears on hover) =====
+     JCEF uses Chromium → styled via ::-webkit-scrollbar on xterm's viewport
+     transparent track + semi-transparent thumb works for both dark and light themes */
+  .xterm .xterm-viewport::-webkit-scrollbar { width: 10px; height: 10px; }
+  .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+    background: rgba(128,128,128,0.4);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: rgba(128,128,128,0.7);
+    background-clip: padding-box;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-corner { background: transparent; }
+#tg-loading { transition: opacity 0.15s; }
+<!--TG_FONTS-->
+</style>
+<!-- Bundled locally so it works offline (avoids JCEF needing internet access) -->
+<link rel="stylesheet" href="xterm/xterm.css"/>
+</head>
+<body>
+<div id="terminal"></div>
+
+<!-- Find bar (Ctrl/Cmd+F) — colours themed via --tg-* vars set from TG_CONFIG -->
+<div id="tg-find" style="position:fixed;top:6px;right:14px;z-index:1100;display:none;align-items:center;gap:4px;
+     background:var(--tg-bg,#1e1e1e);border:1px solid var(--tg-border,rgba(128,128,128,0.4));border-radius:7px;padding:4px 6px;
+     box-shadow:0 4px 14px rgba(0,0,0,0.45);font-family:system-ui,sans-serif;">
+  <input id="tg-find-input" type="text" placeholder="Find…" spellcheck="false"
+     style="width:170px;background:var(--tg-bg,#1e1e1e);color:var(--tg-fg,#eee);border:1px solid var(--tg-border,rgba(128,128,128,0.4));border-radius:4px;padding:3px 7px;font-size:12px;outline:none;"/>
+  <span id="tg-find-count" style="color:var(--tg-border,rgba(128,128,128,0.5));font-size:11px;min-width:46px;text-align:center;"></span>
+  <button class="tg-btn" id="tg-find-prev" type="button" title="Previous (Shift+Enter)">▲</button>
+  <button class="tg-btn" id="tg-find-next" type="button" title="Next (Enter)">▼</button>
+  <button class="tg-btn" id="tg-find-close" type="button" title="Close (Esc)">✕</button>
+</div>
+<style>
+  .tg-btn { background:transparent; color:var(--tg-border,rgba(128,128,128,0.5)); border:none;
+            border-radius:4px; cursor:pointer; padding:2px 7px; font-size:13px; }
+  .tg-btn:hover { color:var(--tg-fg,#ddd); }
+</style>
+<!--TG_CONFIG-->
+<script src="xterm/xterm.js"></script>
+<script src="xterm/xterm-addon-fit.js"></script>
+<!-- xterm 6.0 moved Unicode 11 into a separate addon — required for Thai combining chars (vowels/tone marks) -->
+<script src="xterm/xterm-addon-unicode11.js"></script>
+<!-- WebGL renderer is far faster than DOM and handles Claude Code's heavy output -->
+<script src="xterm/xterm-addon-webgl.js"></script>
+<script>
+// Config is injected from Kotlin via window.TG_CONFIG (see TermGlyphSettings);
+// if absent, the following defaults are used
+const term = new Terminal(window.TG_CONFIG || {
+    fontFamily: 'Menlo, monospace',
+    fontSize: 14,
+    lineHeight: 1.2,
+    theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
+    allowTransparency: false,
+    scrollback: 10000,
+    allowProposedApi: true,   // REQUIRED for registerDecoration() (the find active-match highlight) — see tgFindRun
+});
+
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal'));
+// Expose term so Kotlin can call it (tgClear/tgInterrupt/tgResize below)
+window.term = term;
+// Make the background around the terminal match the theme — prevents a mismatched color strip at the bottom (a partial row from floor(height/cell))
+// that would otherwise show as visible "margin" space; make it the same background as the terminal so it disappears
+try {
+    const bg = (window.TG_CONFIG && window.TG_CONFIG.theme && window.TG_CONFIG.theme.background) || '#1e1e1e';
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
+} catch (e) {}
+
+// ===== Unicode 11 (MUST be active before any output is received) =====
+// Must be active before the shell sends its greeting, otherwise the first few combining chars will render incorrectly
+try {
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
+} catch (e) { /* fallback: Unicode V6 built-in */ }
+
+// ===== WebGL renderer (fast + handles Claude Code; falls back to DOM automatically) =====
+// If the context cannot be created (some JCEF setups have no GL) → throws → DOM renderer continues
+// If the context is lost mid-session → onContextLoss → dispose → DOM renderer takes over
+let webglAddon = null;
+const attachWebgl = () => {
+    try {
+        webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => { try { webglAddon.dispose(); webglAddon = null; } catch (e) {} });
+        term.loadAddon(webglAddon);
+    } catch (e) { webglAddon = null; /* No WebGL → DOM renderer (default) */ }
+};
+attachWebgl();
+// The WebGL renderer measures char width ONCE when it attaches. If the bundled @font-face font hasn't loaded
+// yet, xterm measures a fallback — but because `monospace` now sits right after the primary in the fontFamily
+// chain, that fallback is a real monospace (correct width), so the terminal is always readable. Still, when the
+// real font (e.g. JetBrains Mono) finishes loading, force xterm to re-measure so it upgrades from the monospace
+// fallback to the real font. Re-measuring = toggling fontFamily (changing an option triggers xterm's dimension
+// recalc). The 400ms fallback covers a JCEF that won't resolve document.fonts.
+const _cfg0 = window.TG_CONFIG || {};
+const _primaryFamily = ((_cfg0.fontFamily || '').split(',')[0] || '').trim().replace(/['"]/g, '');
+const _primarySize = _cfg0.fontSize || 14;
+let _fontRemeasured = false;
+const _fontRemeasure = () => {
+    if (_fontRemeasured) return;
+    _fontRemeasured = true;
+    try {
+        const fam = term.options.fontFamily;
+        term.options.fontFamily = fam + ', ' + (fam ? '' : 'monospace');  // change → triggers re-measure
+        term.options.fontFamily = fam;                                    // restore
+        fitAddon.fit();
+        paintAll();
+    } catch (e) {}
+};
+if (_primaryFamily && document.fonts && document.fonts.load) {
+    document.fonts.load(`${_primarySize}px "${_primaryFamily}"`).then(_fontRemeasure).catch(() => {});
+}
+setTimeout(_fontRemeasure, 400);
+
+// ===== Find in terminal (manual — scans xterm's buffer directly; no addon version dependency) =====
+const findBar = document.getElementById('tg-find');
+const findInput = document.getElementById('tg-find-input');
+const findCount = document.getElementById('tg-find-count');
+let tgResults = [], tgResultIdx = -1, tgLastQuery = null;
+const tgFindCount = (text, noMatch) => {
+    if (!findCount) return;
+    findCount.textContent = text || '';
+    // Set explicitly (NOT '' — clearing the inline colour falls back to inherited black). Muted theme colour, red on no-match.
+    findCount.style.color = noMatch ? '#e06c75' : 'var(--tg-border, rgba(128,128,128,0.6))';
+};
+const tgSearchAll = (q) => {
+    // Build per-line text from CELLS (via getCell), recording the cell column for each char index. Char index ≠ cell
+    // column when there are combining chars (Thai vowels/tone marks = 0-width) or wide chars before the match — using
+    // char index would shift the highlight to the right. col = cell column; len = cells spanned.
+    const out = [];
+    const ql = q.toLowerCase();
+    try {
+        const buf = term.buffer.active;
+        for (let y = 0; y < buf.length; y++) {
+            const line = buf.getLine(y); if (!line) continue;
+            let text = ''; const cellCol = [];
+            for (let x = 0; x < line.length; x++) {
+                const c = line.getCell(x); if (!c) continue;
+                const ch = c.getChars();
+                if (!ch.length) continue;   // skip empty cells (wide-char continuations)
+                for (let k = 0; k < ch.length; k++) { cellCol[text.length] = x; text += ch[k]; }
+            }
+            let i = 0; const low = text.toLowerCase();
+            while ((i = low.indexOf(ql, i)) !== -1) {
+                const col = cellCol[i] || 0;
+                const lastCell = cellCol[Math.min(i + q.length - 1, text.length - 1)];
+                out.push({ line: y, col, len: Math.max(1, (lastCell != null ? lastCell : col) - col + 1) });
+                i += q.length;
+            }
+        }
+    } catch (e) {}
+    return out;
+};
+// Highlight the ACTIVE match via a decoration: yellow #fffe03 background + black #000000 text (just the active match).
+// NOTE: registerDecoration() is "proposed API" → the Terminal MUST be created with allowProposedApi:true, otherwise
+// _checkProposedApi() THROWS (swallowed by our try/catch → nothing renders). That was the real root cause of the 1.8.5
+// "decoration invisible" bug — NOT "WebGL can't render decorations": the WebGL renderer DOES paint them
+// (it calls _decorationService.forEachDecorationAtCell("bottom",…) and applies both backgroundColorRGB and foregroundColorRGB).
+// A marker ties the decoration to an absolute buffer line; registerMarker(offset) places it at baseY+cursorY+offset,
+// so offset = targetLine − baseY − cursorY. Disposing the marker disposes the decoration (it hooks marker.onDispose).
+let tgActiveMarker = null;
+const tgClearActive = () => { if (tgActiveMarker) { try { tgActiveMarker.dispose(); } catch (e) {} tgActiveMarker = null; } };
+const tgFindShow = () => { if (!findBar) return; findBar.style.display = 'flex'; try { findInput.focus(); findInput.select(); } catch (e) {} };
+const tgFindHide = () => { if (!findBar) return; findBar.style.display = 'none'; tgClearActive(); try { term.focus(); term.clearSelection(); } catch (e) {} };
+window.tgFindToggle = () => { if (!findBar) return; if (findBar.style.display === 'flex') tgFindHide(); else tgFindShow(); };
+const tgFindRun = (dir) => {
+    if (!findInput) return;
+    const q = findInput.value;
+    if (!q) { tgLastQuery = null; tgResults = []; tgResultIdx = -1; tgFindCount(''); tgClearActive(); try { term.clearSelection(); } catch(e){} return; }
+    if (tgLastQuery !== q) { tgResults = tgSearchAll(q); tgLastQuery = q; tgResultIdx = -1; tgClearActive(); }
+    if (tgResults.length === 0) { tgFindCount('0/0', true); tgClearActive(); return; }
+    tgResultIdx = (tgResultIdx + dir + tgResults.length) % tgResults.length;
+    const r = tgResults[tgResultIdx];
+    try {
+        term.scrollToLine(r.line);                 // scroll the active match into view (always — even if nearby)
+        tgClearActive();
+        const buf = term.buffer.active;
+        const marker = term.registerMarker(r.line - buf.baseY - buf.cursorY);   // absolute buffer line of the match
+        if (marker) {
+            tgActiveMarker = marker;
+            term.registerDecoration({               // yellow bg + black text for the active match only
+                marker: marker,
+                x: r.col,
+                width: Math.max(1, r.len),
+                backgroundColor: '#fffe03',
+                foregroundColor: '#000000'
+            });
+        }
+        term.refresh(0, term.rows - 1);             // force a repaint so the decoration shows
+    } catch (e) {}
+    tgFindCount((tgResultIdx + 1) + '/' + tgResults.length);
+};
+if (findInput) {
+    findInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); tgFindRun(e.shiftKey ? -1 : 1); }
+        else if (e.key === 'Escape') { e.preventDefault(); tgFindHide(); }
+        e.stopPropagation();
+    });
+    findInput.addEventListener('input', () => tgFindRun(1));
+}
+const btnPrev = document.getElementById('tg-find-prev');
+const btnNext = document.getElementById('tg-find-next');
+const btnClose = document.getElementById('tg-find-close');
+if (btnPrev) btnPrev.addEventListener('click', () => tgFindRun(-1));
+if (btnNext) btnNext.addEventListener('click', () => tgFindRun(1));
+if (btnClose) btnClose.addEventListener('click', tgFindHide);
+
+// Right-click → Kotlin shows a native (Swing) context menu at the click point.
+document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (window.tgShowMenu) window.tgShowMenu(e.clientX, e.clientY);
+});
+
+// Theme the find bar from TG_CONFIG (and on live-reload).
+const applyThemeColors = () => {
+    try {
+        const th = (window.TG_CONFIG && window.TG_CONFIG.theme) || {};
+        const root = document.documentElement.style;
+        root.setProperty('--tg-bg', th.background || '#1e1e1e');
+        root.setProperty('--tg-fg', th.foreground || '#d4d4d4');
+        // Subtle border visible in BOTH light and dark modes: derive from the BACKGROUND luminance (not fg alpha —
+        // that was too faint in light mode). Dark bg → faint light line; light bg → faint dark line.
+        const bhex = (th.background || '#1e1e1e').replace('#', '');
+        const br = parseInt(bhex.substr(0, 2), 16) || 0, bgc = parseInt(bhex.substr(2, 2), 16) || 0, bb = parseInt(bhex.substr(4, 2), 16) || 0;
+        const darkBg = (0.299 * br + 0.587 * bgc + 0.114 * bb) < 140;
+        root.setProperty('--tg-border', darkBg ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.28)');
+    } catch (e) {}
+};
+applyThemeColors();
+
+// ===== Full-size fit / render stability =====
+let fitTimer = 0;
+const scheduleFit = () => {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(() => { try { fitAddon.fit(); } catch (e) {} }, 30);
+};
+const paintAll = () => { try { term.refresh(0, term.rows - 1); } catch (e) {} };
+// Force a full repaint. JCEF/Chromium throttles requestAnimationFrame and discards the occluded
+// canvas surface while the tab/window is in the background → the screen looks frozen/stale until a
+// paint is forced. Called when the panel regains focus/selection (Kotlin) or becomes visible (below).
+const refreshScreen = () => { try { paintAll(); } catch (e) {} };
+// Fade out the "Starting terminal…" overlay (defined once — used by both settleStep and the 6s safety net).
+const hideLoadingOverlay = () => {
+    const ol = document.getElementById('tg-loading');
+    if (ol) { ol.style.opacity = '0'; setTimeout(function () { if (ol.parentNode) ol.remove(); }, 200); }
+};
+const doFit = () => {
+    try { fitAddon.fit(); } catch (e) {}
+    requestAnimationFrame(() => requestAnimationFrame(paintAll));
+};
+// Re-fit until dimensions stabilize — guards against JCEF quirks (fonts.ready may never resolve + #terminal is already full size at start
+// → ResizeObserver does not fire on first open), so we must trigger fit ourselves over several iterations
+let lastDims = '', stableRun = 0, settleTries = 0, settleTimer = 0;
+const settleStep = () => {
+    settleTimer = 0;
+    doFit();
+    const dims = term.cols + 'x' + term.rows;
+    if (dims === lastDims) stableRun++; else { stableRun = 0; lastDims = dims; settleTries = 0; }
+    if (stableRun < 3 && settleTries++ < 40) {
+        settleTimer = setTimeout(settleStep, 120);
+    } else {
+        // Dimensions stable (or gave up after 40 rounds) — terminal is ready → hide the loading overlay.
+        hideLoadingOverlay();
+    }
+};
+const kickSettle = () => {
+    doFit();
+    if (!settleTimer) settleTimer = setTimeout(settleStep, 120);
+};
+// On first output → also fit ONCE (Claude Code's greeting usually arrives after layout settles, so the real size can be
+// captured). Fitting on every output chunk (as the old 5-second window did) caused lag during heavy output and made a
+// drag-selection "jump" when the layout reflowed — one shot is enough; the settle loop + ResizeObserver handle the rest.
+let fitOnOutputDone = false;
+
+// ===== keyboard: Ctrl+C / Cmd+K =====
+// Ctrl+C → always send \x03 (SIGINT); prevents Chromium/xterm from treating it as copy (which would make it impossible to exit Claude Code)
+// Cmd+K / Ctrl+K → clear the terminal (like Terminal.app / iTerm2)
+// Return true = let xterm handle normally, false = we handle it ourselves + preventDefault
+// Platform flags computed once (not per keystroke). navigator.platform is "Win32"/"Win64" on Windows, "MacIntel" on macOS.
+const _tgIsWin = /Win/i.test(navigator.platform || navigator.userAgent || '');
+const _tgIsMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+term.attachCustomKeyEventHandler((event) => {
+    // Windows non-Latin layout fix (Thai, etc.): on Windows/JCEF the keydown event.key is the US-layout letter even on a
+    // non-Latin layout, and xterm's keymap sends THAT ("d") on the keydown fast-path — which sets _keyDownHandled and
+    // PREEMPTS keypress (where charCode is layout-aware = the real Thai char; that's why Shift+key already types Thai).
+    // Returning false on keydown ONLY skips xterm's fast-path (so _keyDownHandled stays false) → keypress fires → sends
+    // the layout-correct char (Thai on Thai, English on US), including right after a runtime language switch (keypress
+    // .charCode reads the live layout). (English still works: keypress sends the English charCode.) Do NOT also defer
+    // keypress — that removed the only working char source and broke ALL typing (xterm's _inputEvent doesn't fire
+    // reliably in JCEF). Gated to Windows so macOS — where event.key is already correct — is untouched.
+    const _tgIsPrintable = !event.ctrlKey && !event.metaKey && !event.altKey && !!event.key && event.key.length === 1;
+    if (_tgIsWin && _tgIsPrintable && event.type === 'keydown') {
+        return false;
+    }
+    if (event.type !== 'keydown') return true;
+    // macOS-only: Caps Lock switches the keyboard layout → emits a key event that xterm turns into ￿ (shown as <ffff>).
+    // Swallow it on macOS ONLY. Gated to macOS because on Windows a Thai-layout key press can ALSO arrive with keyCode
+    // 65535 / through the IME flow, and swallowing it here DROPS the Thai keystroke. The onData ￿-filter below still
+    // scrubs any stray ￿ on macOS, so gating this is safe.
+    if (_tgIsMac && (event.key === 'CapsLock' || event.keyCode === 20 || event.keyCode === 65535)) {
+        return false;
+    }
+    // Ctrl+C is SMART (matches the IDE terminal): copy the selection if one exists, else send SIGINT (\x03).
+    // A plain terminal always interrupts on Ctrl+C; the IDE terminal copies-when-selected — so does TermGlyph.
+    if (event.ctrlKey && (event.key === 'c' || event.keyCode === 67)) {
+        event.preventDefault();
+        if (window.tgCtrlC) window.tgCtrlC();
+        return false;
+    }
+    // Paste: Cmd+V (mac) / Ctrl+V (Win/Linux). The canvas can't read the clipboard, so ask Kotlin for it via
+    // tgRequestPaste (same path as the right-click Paste menu). Also registered as a Kotlin component-scoped
+    // shortcut; this JS handler is the fallback for when the keystroke reaches xterm but IntelliJ didn't route it.
+    if ((event.metaKey || event.ctrlKey) && (event.key === 'v' || event.keyCode === 86)) {
+        event.preventDefault();
+        if (window.tgRequestPaste) window.tgRequestPaste();
+        return false;
+    }
+    // Shift+Enter → send a newline (LF) instead of Enter's CR, so apps like Claude Code insert a line break
+    // (multi-line input) rather than submitting. (Plain Enter still sends CR = submit.) The Kotlin side also
+    // registers Shift+Enter as a component-scoped shortcut in case IntelliJ would otherwise grab it.
+    if (event.key === 'Enter' && event.shiftKey) {
+        event.preventDefault();
+        if (window.sendInput) window.sendInput('\n');
+        return false;
+    }
+    if ((event.metaKey || event.ctrlKey) && (event.key === 'k' || event.keyCode === 75)) {
+        event.preventDefault();
+        try { term.clear(); } catch (e) {}
+        return false;
+    }
+    return true;
+});
+
+// ===== I/O bridge =====
+// Receive output from Kotlin → render into the terminal (+ fit on first output if still within the time window)
+window.receiveOutput = (data) => {
+    term.write(data);
+    if (!fitOnOutputDone) { fitOnOutputDone = true; scheduleFit(); }
+};
+// Send user input → Kotlin → shell (filter out any ￿ that escaped from IME/Caps Lock)
+term.onData((data) => {
+    if (!data) return;
+    if (data.indexOf('￿') >= 0) data = data.replace(/￿/g, '');
+    if (data && window.sendInput) window.sendInput(data);
+});
+// Send the current terminal size to Kotlin/PTY — used on onResize and once the bridge is ready
+window.tgResize = () => {
+    if (window.onTerminalResize) window.onTerminalResize(term.cols, term.rows);
+};
+term.onResize(() => { window.tgResize(); });
+
+// Honor OSC 0/2 title escapes — apps that set the terminal title (e.g. Claude Code unless CLAUDE_CODE_DISABLE_TERMINAL_TITLE)
+// → forward to Kotlin so the tab shows the app's own title, like the built-in terminal.
+try { term.onTitleChange((t) => { if (window.onTerminalTitle) window.onTerminalTitle(t || ''); }); } catch (e) {}
+
+// Remember the latest selection so Copy can still get it even if a click clears the live selection
+// (xterm drops the selection on some interactions). tgCopySelection falls back to this.
+let tgLastSelection = '';
+try {
+    term.onSelectionChange(() => {
+        tgLastSelection = (term.hasSelection() ? (term.getSelection() || '') : '');
+    });
+} catch (e) {}
+// IDE actions (Ctrl+C / Cmd+K registered as component-scoped shortcuts on the Kotlin side) are invoked via executeJavaScript
+window.tgClear = () => { try { term.clear(); } catch (e) {} };
+window.tgInterrupt = () => { if (window.sendInput) window.sendInput('\x03'); };
+// Smart Ctrl+C: if a selection exists, copy it (and clear it, like the IDE terminal); otherwise send SIGINT (\x03).
+// Called by both the JS keydown handler and the Kotlin component-scoped shortcut (TerminalBrowserPanel.ctrlC).
+window.tgCtrlC = () => {
+    try {
+        if (window.term && window.term.hasSelection()) {
+            if (window.tgCopySelection) window.tgCopySelection();
+            try { window.term.clearSelection(); } catch (e) {}
+        } else if (window.sendInput) {
+            window.sendInput('\x03');
+        }
+    } catch (e) {}
+};
+// Kotlin calls this when the panel regains focus/selection (see TerminalBrowserPanel.refresh) to force a repaint.
+window.tgRefresh = refreshScreen;
+// Live-reload: push new config from settings / IDE theme change without closing the tab.
+window.tgReloadConfig = (json) => {
+    try {
+        const cfg = JSON.parse(json);
+        if (cfg.fontFamily) term.options.fontFamily = cfg.fontFamily;
+        if (cfg.fontSize) term.options.fontSize = cfg.fontSize;
+        if (cfg.lineHeight !== undefined) term.options.lineHeight = cfg.lineHeight;
+        if (cfg.letterSpacing !== undefined) term.options.letterSpacing = cfg.letterSpacing;
+        if (cfg.cursorStyle) term.options.cursorStyle = cfg.cursorStyle;
+        if (cfg.theme) term.options.theme = cfg.theme;
+        // Match body background to new theme (hides the partial-row strip at the bottom).
+        if (cfg.theme && cfg.theme.background) {
+            document.documentElement.style.background = cfg.theme.background;
+            document.body.style.background = cfg.theme.background;
+        }
+        // Update the shared config object so applyThemeColors() re-derives --tg-bg/--tg-fg/--tg-border from the
+        // NEW theme's background (without this, the find-bar colours stay derived from the OLD background after a
+        // dark↔light scheme switch — that was the "find panel doesn't recolour on theme change" bug).
+        window.TG_CONFIG = cfg;
+        try { applyThemeColors(); } catch(e) {}
+        try { fitAddon.fit(); } catch(e) {}
+        term.refresh(0, term.rows - 1);
+    } catch(e) {}
+};
+
+// ===== Reliable fit trigger (does not depend on document.fonts.ready) =====
+kickSettle();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(doFit);
+setTimeout(kickSettle, 200);
+setTimeout(kickSettle, 700);
+setTimeout(kickSettle, 1500);
+setTimeout(kickSettle, 3000);
+// Safety: if the settle loop never converges (edge case), remove the loading overlay after 6 s
+setTimeout(hideLoadingOverlay, 6000);
+
+// Track container size changes (debounced) — handles dragging/resizing the tool window
+if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(scheduleFit).observe(document.getElementById('terminal'));
+}
+window.addEventListener('resize', scheduleFit);
+// Repaint the moment the page becomes visible/focused again — counteracts JCEF background throttling.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshScreen(); scheduleFit(); } });
+window.addEventListener('focus', refreshScreen);
+// Repaint after the user scrolls the terminal viewport — the WebGL renderer can leave stale/overlapping
+// glyphs after a fast scroll (especially with Claude Code's heavy output). Debounced so it runs once the
+// scroll settles, not on every pixel.
+try {
+    const _vp = document.querySelector('.xterm-viewport');
+    if (_vp) {
+        let _scrollT = null;
+        _vp.addEventListener('scroll', () => {
+            if (_scrollT) clearTimeout(_scrollT);
+            _scrollT = setTimeout(() => { try { paintAll(); } catch (e) {} }, 60);
+        }, { passive: true });
+    }
+} catch (e) {}
+</script>
+</body>
+</html>

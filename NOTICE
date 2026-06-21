@@ -1,0 +1,8 @@
+TermGlyph
+Copyright © 2026 Duckyman
+
+This product bundles third-party assets that are NOT covered by the
+project's MIT license. Each retains its own license:
+
+1. xterm.js + addons (fit, unicode11, webgl) (https://xtermjs.org/)
+   Licensed under the MIT License.
