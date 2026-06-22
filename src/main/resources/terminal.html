@@ -27,6 +27,27 @@
     background-clip: padding-box;
   }
   .xterm .xterm-viewport::-webkit-scrollbar-corner { background: transparent; }
+
+  /* ===== CCGlyph status effects: top gradient beam + status chip ===== */
+  #ccg-beam { position:fixed; top:0; left:0; right:0; height:3px; z-index:1200; opacity:0;
+    background:linear-gradient(90deg,#7c3aed,#2563eb,#06b6d4,#2563eb,#7c3aed);
+    background-size:200% 100%; transition:opacity .3s; pointer-events:none; }
+  #ccg-beam.on { opacity:1; animation:ccg-flow 1.1s linear infinite; }
+  #ccg-beam.wait { background:linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b); opacity:.95; animation:ccg-pulse 1s ease-in-out infinite; }
+  #ccg-beam.high { background:linear-gradient(90deg,#ef4444,#f97316,#ef4444); opacity:1; }
+  @keyframes ccg-flow { to { background-position:200% 0; } }
+  @keyframes ccg-pulse { 50% { opacity:.35; } }
+  #ccg-chip { position:fixed; top:7px; right:14px; z-index:1150; display:none; align-items:center; gap:8px;
+    padding:3px 10px; border-radius:999px; background:var(--tg-bg,#1e1e1e);
+    border:1px solid var(--tg-border,rgba(128,128,128,0.4)); color:var(--tg-fg,#eee);
+    font:11px/1.4 system-ui,sans-serif; box-shadow:0 2px 12px rgba(0,0,0,0.45);
+    user-select:none; -webkit-backdrop-filter:blur(6px); pointer-events:none; }
+  #ccg-chip .ccg-dot { width:7px; height:7px; border-radius:50%; background:#888; }
+  #ccg-chip.think .ccg-dot { background:#a78bfa; box-shadow:0 0 7px #a78bfa; }
+  #ccg-chip.tool .ccg-dot { background:#38bdf8; box-shadow:0 0 7px #38bdf8; }
+  #ccg-chip.wait .ccg-dot { background:#fbbf24; box-shadow:0 0 7px #fbbf24; }
+  #ccg-chip.idle .ccg-dot { background:#34d399; }
+  #ccg-chip .ccg-cost, #ccg-chip .ccg-ctx { color:var(--tg-border,rgba(128,128,128,0.75)); }
 #tg-loading { transition: opacity 0.15s; }
 <!--TG_FONTS-->
 </style>
@@ -60,7 +81,7 @@
 <!-- WebGL renderer is far faster than DOM and handles Claude Code's heavy output -->
 <script src="xterm/xterm-addon-webgl.js"></script>
 <script>
-// Config is injected from Kotlin via window.TG_CONFIG (see TermGlyphSettings);
+// Config is injected from Kotlin via window.TG_CONFIG (see CCGlyphSettings);
 // if absent, the following defaults are used
 const term = new Terminal(window.TG_CONFIG || {
     fontFamily: 'Menlo, monospace',
@@ -319,7 +340,7 @@ term.attachCustomKeyEventHandler((event) => {
         return false;
     }
     // Ctrl+C is SMART (matches the IDE terminal): copy the selection if one exists, else send SIGINT (\x03).
-    // A plain terminal always interrupts on Ctrl+C; the IDE terminal copies-when-selected — so does TermGlyph.
+    // A plain terminal always interrupts on Ctrl+C; the IDE terminal copies-when-selected — so does CCGlyph.
     if (event.ctrlKey && (event.key === 'c' || event.keyCode === 67)) {
         event.preventDefault();
         if (window.tgCtrlC) window.tgCtrlC();
@@ -452,6 +473,35 @@ try {
         }, { passive: true });
     }
 } catch (e) {}
+
+// ===== CCGlyph status effects: gradient beam + live status chip =====
+(function () {
+  try {
+    var beam = document.createElement('div'); beam.id = 'ccg-beam'; document.body.appendChild(beam);
+    var chip = document.createElement('div'); chip.id = 'ccg-chip';
+    chip.innerHTML = '<span class="ccg-dot"></span><span class="ccg-model"></span><span class="ccg-cost"></span><span class="ccg-ctx"></span>';
+    document.body.appendChild(chip);
+    var mEl = chip.querySelector('.ccg-model'), cEl = chip.querySelector('.ccg-cost'), xEl = chip.querySelector('.ccg-ctx');
+    var cls = { THINKING:'think', TOOL_RUNNING:'tool', WAITING_PERMISSION:'wait', WAITING_INPUT:'wait', IDLE:'idle', ERROR:'wait' };
+    window.ccgSetState = function (state, highCtx) {
+      beam.className = '';
+      chip.className = '';
+      chip.classList.add(cls[state] || 'idle');
+      if (state === 'THINKING' || state === 'TOOL_RUNNING') beam.classList.add('on');
+      else if (state === 'WAITING_PERMISSION' || state === 'WAITING_INPUT' || state === 'ERROR') beam.classList.add('wait');
+      if (highCtx) beam.classList.add('high');
+    };
+    window.ccgUpdateStatus = function (s) {
+      try {
+        if (typeof s === 'string') s = JSON.parse(s);
+        if (s && s.model) mEl.textContent = s.model;
+        if (s && s.costUsd !== undefined && s.costUsd > 0) cEl.textContent = '$' + Number(s.costUsd).toFixed(3);
+        if (s && s.contextPct !== undefined) xEl.textContent = 'ctx ' + s.contextPct + '%';
+        if (s && (s.model || s.contextPct !== undefined)) chip.style.display = 'flex';
+      } catch (e) {}
+    };
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>

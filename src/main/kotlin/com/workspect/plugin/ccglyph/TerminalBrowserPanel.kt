@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -27,8 +27,15 @@ import java.awt.event.KeyEvent
 import java.io.File
 import javax.swing.JComponent
 import javax.swing.KeyStroke
+import com.workspect.plugin.ccglyph.status.ClaudeState
+import com.workspect.plugin.ccglyph.status.StatusController
+import com.workspect.plugin.ccglyph.status.StatusSnapshot
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
-class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null) {
+class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null, private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null) {
 
     private val disposable: Disposable = parentDisposable
     private val browser = JBCefBrowser()
@@ -51,7 +58,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
 
     // --- process detection (output-triggered, used to switch the tab icon + title) ---
     // When shell output flows in → check the process tree for known tools (DETECT_PRIORITY — first match wins);
-    // only invoke the callback on a state change. TermGlyphContent wires the callback: the icon comes from
+    // only invoke the callback on a state change. CCGlyphContent wires the callback: the icon comes from
     // iconFor() (null = idle shell → default terminal icon) and the title from the app's OSC title (onTerminalTitle).
     @Volatile private var lastCheckMs: Long = 0L
     @Volatile private var currentProcess: String? = null
@@ -66,6 +73,12 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
      *  split pane → the menu items are no-ops there. */
     var onNewTab: (() -> Unit)? = null
     var onCloseTab: (() -> Unit)? = null
+
+    /** Status callback for the tab blinker (wired by CCGlyphContent); null on non-bridged sessions. */
+    var onStatus: ((ClaudeState) -> Unit)? = null
+    private var statusController: StatusController? = null
+    @Volatile private var warnedHighCtx = false
+    @Volatile private var warnedRate = false
 
     // --- live-reload: settings / theme changes push to xterm immediately ---
     private val settingsListener = Runnable { pushConfigToJs() }
@@ -150,7 +163,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     init {
         // Whether the editor scheme is dark → passed to the PTY env (COLORFGBG) so TUI apps pick the right theme.
         val darkBg = isDarkColor(EditorColorsManager.getInstance().globalScheme.defaultBackground)
-        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath)
+        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath, launchSpec)
 
         // inject sendInput and onTerminalResize after the page finishes loading.
         // Also removes the loading overlay (#tg-loading) injected by extractWebResources.
@@ -211,15 +224,30 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // → when the terminal is focused, IntelliJ will capture these before global actions (e.g. Cmd+K = Commit).
         registerShortcuts()
 
-        // Live-reload: when settings are applied (Settings → Tools → TermGlyph) or the IDE
+        // Live-reload: when settings are applied (Settings → Tools → CCGlyph) or the IDE
         // editor color scheme changes, push the new config to xterm immediately.
-        TermGlyphSettings.getInstance().addListener(settingsListener)
+        CCGlyphSettings.getInstance().addListener(settingsListener)
         ApplicationManager.getApplication().messageBus.connect(disposable).subscribe(
             EditorColorsManager.TOPIC,
             object : EditorColorsListener {
                 override fun globalSchemeChange(scheme: EditorColorsScheme?) { pushConfigToJs() }
             }
         )
+
+        // Bridge-backed session? Poll its status dir and drive the beam/chip + tab effects.
+        val spec = launchSpec
+        if (spec?.hasBridge == true) {
+            statusController = StatusController(spec.sessionId, spec.stateDir).apply {
+                onUpdate = { state, snap ->
+                    if (!disposed) {
+                        applyStatusToJs(state, snap)
+                        onStatus?.invoke(state)
+                        snap?.let { checkThresholds(it) }
+                    }
+                }
+                start()
+            }
+        }
     }
 
     val component: JComponent get() = browser.component
@@ -228,7 +256,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
      *  IDE actions call tgClear()/tgCtrlC() instead of relying on a JS keydown handler
      *  (the JS handler doesn't work when the IDE steals the keystroke before it reaches JCEF, e.g. Cmd+K = Commit). */
     private fun registerShortcuts() {
-        val clearAction = object : AnAction("Clear TermGlyph Terminal") {
+        val clearAction = object : AnAction("Clear CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = clearScreen()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -242,7 +270,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Ctrl+C is "smart" (matches the IDE terminal): copy the selection if one exists, else send SIGINT.
         // The decision is made in JS (window.tgCtrlC) so both this component-scoped shortcut and the JS keydown
         // handler share one source of truth — see tgCtrlC in terminal.html.
-        val interruptAction = object : AnAction("Copy or Interrupt TermGlyph Terminal (Ctrl+C)") {
+        val interruptAction = object : AnAction("Copy or Interrupt CCGlyph Terminal (Ctrl+C)") {
             override fun actionPerformed(e: AnActionEvent) = ctrlC()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -253,7 +281,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Copy the selection: Cmd+C (mac) / Ctrl+Shift+C (Win/Linux). The WebGL renderer paints to a canvas so the
         // browser can't copy the selected text itself; this routes xterm's full selection to the clipboard (see copyQuery).
         // (Ctrl+C without Shift stays SIGINT, above.) No selection → no-op.
-        val copyAction = object : AnAction("Copy TermGlyph Selection") {
+        val copyAction = object : AnAction("Copy CCGlyph Selection") {
             override fun actionPerformed(e: AnActionEvent) = copySelection()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -269,7 +297,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Paste: Cmd+V (mac) / Ctrl+V (Win/Linux). The canvas can't read the clipboard, so this routes through
         // requestPaste() (same path as the right-click Paste menu). Also handled in JS (terminal.html) as a fallback
         // in case the IDE grabs the keystroke before the component-scoped shortcut fires.
-        val pasteAction = object : AnAction("Paste to TermGlyph Terminal") {
+        val pasteAction = object : AnAction("Paste to CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = requestPaste()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -282,7 +310,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         )
         // Find in terminal: Cmd+F (mac) / Ctrl+F. The IDE grabs Find as a global action, so this component-scoped
         // shortcut takes over when the terminal is focused → toggles the xterm search bar (window.tgFindToggle).
-        val findAction = object : AnAction("Find in TermGlyph Terminal") {
+        val findAction = object : AnAction("Find in CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = findToggle()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -345,7 +373,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             add(menuAction("Clear", "Clear the terminal", AllIcons.Actions.Refresh) { clearScreen() })
         }
         val popup = com.intellij.openapi.actionSystem.ActionManager.getInstance()
-            .createActionPopupMenu("TermGlyphTerminalContext", group)
+            .createActionPopupMenu("CCGlyphTerminalContext", group)
         popup.setTargetComponent(browser.component)
         popup.component.show(browser.component, x, y)
     }
@@ -382,7 +410,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     }
 
     /** Force a full repaint of the terminal canvas.
-     *  Called when the panel regains focus/selection (see TermGlyphTerminalFactory) — JCEF/Chromium drops
+     *  Called when the panel regains focus/selection (see CCGlyphTerminalFactory) — JCEF/Chromium drops
      *  the occluded canvas surface while the tab/window is backgrounded, so the screen looks frozen/stale
      *  until a paint is forced. Drives window.tgRefresh in terminal.html. */
     fun refresh() {
@@ -393,7 +421,59 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
     }
 
-    /** Descendant processes currently running in this session (used to ask for confirmation before closing a tab — see TermGlyphTerminalFactory). */
+    /** Push a Claude state + status snapshot to the in-terminal effects (gradient beam + status chip). */
+    fun applyStatusToJs(state: ClaudeState, snapshot: StatusSnapshot?) {
+        if (disposed) return
+        val highCtx = (snapshot?.contextPct ?: 0) >= 80
+        runCatching {
+            browser.cefBrowser.executeJavaScript(
+                "window.ccgSetState && window.ccgSetState('${state.name}', ${highCtx});",
+                browser.cefBrowser.url, 0
+            )
+        }
+        val payload = buildJsonObject {
+            put("model", snapshot?.model ?: "")
+            put("costUsd", snapshot?.costUsd ?: 0.0)
+            put("contextPct", snapshot?.contextPct ?: 0)
+        }
+        val jsonStr = Json.encodeToString(JsonElement.serializer(), payload)
+        val escaped = jsEscape(jsonStr)
+        runCatching {
+            browser.cefBrowser.executeJavaScript(
+                "window.ccgUpdateStatus && window.ccgUpdateStatus(\"$escaped\");",
+                browser.cefBrowser.url, 0
+            )
+        }
+    }
+
+    /** Proactively warn once when the context window or the rate-limit quota gets near full. */
+    private fun checkThresholds(snap: StatusSnapshot) {
+        if (!warnedHighCtx && snap.contextPct >= 90) {
+            warnedHighCtx = true
+            ccgNotify("Context window ${snap.contextPct}% full",
+                "Consider running /compact soon — the context window is almost full.")
+        } else if (snap.contextPct < 70) {
+            warnedHighCtx = false
+        }
+        if (!warnedRate && snap.rateFiveHourPct >= 85) {
+            warnedRate = true
+            ccgNotify("Rate limit ${snap.rateFiveHourPct.toInt()}% used",
+                "You're close to the 5-hour usage quota.")
+        } else if (snap.rateFiveHourPct < 60) {
+            warnedRate = false
+        }
+    }
+
+    private fun ccgNotify(title: String, content: String) {
+        runCatching {
+            val notif = com.intellij.notification.NotificationGroupManager.getInstance()
+                .getNotificationGroup("ccglyph")
+                .createNotification(title, content, com.intellij.notification.NotificationType.WARNING)
+            notif.notify(com.intellij.openapi.project.ProjectManager.getInstance().defaultProject)
+        }
+    }
+
+    /** Descendant processes currently running in this session (used to ask for confirmation before closing a tab — see CCGlyphTerminalFactory). */
     fun runningProcesses(): List<String> = session.runningProcesses()
 
     /** Output-triggered: latch onto moments when shell output flows in to check the process tree
@@ -474,9 +554,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
     }
 
-    /** Build the JSON config object for new Terminal(...) from TermGlyphSettings + the current editor color scheme. */
+    /** Build the JSON config object for new Terminal(...) from CCGlyphSettings + the current editor color scheme. */
     private fun buildConfigJson(): String {
-        val s = TermGlyphSettings.getInstance().state
+        val s = CCGlyphSettings.getInstance().state
         // Theme genuinely follows the IDE's editor color scheme (there's no theme setting anymore) —
         // bg/fg/cursor/selection are pulled directly from the scheme; the 16-color ANSI palette picks
         // dark/light based on the bg luminance → the terminal blends into the editor (same background,
@@ -508,9 +588,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
         val font = s.fontFamily.replace("\\", "\\\\").replace("\"", "\\\"")
         // Resolve the "follow IDE" sentinels (fontSize=0 / fallbackFont="") to the live IDE values.
-        val fallback = (if (s.fallbackFont.isNotBlank()) s.fallbackFont else TermGlyphSettings.editorFallbackFont())
+        val fallback = (if (s.fallbackFont.isNotBlank()) s.fallbackFont else CCGlyphSettings.editorFallbackFont())
             .replace("\\", "\\\\").replace("\"", "\\\"")
-        val fontSize = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        val fontSize = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         val lineHeight = Math.round(s.lineHeight * 10.0) / 10.0
         return "{" +
             // Emoji glyph fallback chain (per-glyph): JetBrains Mono (and most monospace fonts) ship no
@@ -696,8 +776,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             disposed = true
             runCatching { alarm.cancelAllRequests() }
         }
+        runCatching { statusController?.dispose() }
         // Unregister live-reload listeners (theme listener is auto-cleaned via messageBus.dispose on parentDisposable).
-        runCatching { TermGlyphSettings.getInstance().removeListener(settingsListener) }
+        runCatching { CCGlyphSettings.getInstance().removeListener(settingsListener) }
         runCatching { alarm.dispose() }
         session.destroy()
         inputQuery.dispose()
@@ -744,7 +825,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         )
 
         /** Version of the web assets — bump every time you edit terminal.html/xterm to invalidate the CEF file:// cache. */
-        const val WEB_VERSION = "v20"
+        const val WEB_VERSION = "v21"
 
         /** Static xterm assets that are extracted once at startup (not per-tab). */
         private val STATIC_ASSETS = listOf(
@@ -762,7 +843,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         )
 
         /** Temp directory where xterm assets + terminal.html live. */
-        private val webDir = File(System.getProperty("java.io.tmpdir"), "termglyph-web-$WEB_VERSION")
+        private val webDir = File(System.getProperty("java.io.tmpdir"), "ccglyph-web-$WEB_VERSION")
 
         private val extractLock = Any()
         @Volatile private var assetsExtracted = false
@@ -771,7 +852,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
          * Extract static xterm files (js/css/addons) to a temp directory — once per IDE session.
          * Safe to call from any thread, safe to call multiple times (no-op after first).
          *
-         * Called at project-open (TermGlyphStartupActivity) so the 1.3MB file I/O is done
+         * Called at project-open (CCGlyphStartupActivity) so the 1.3MB file I/O is done
          * before the user ever opens a terminal tab.  Also called lazily by the first tab
          * if startup hasn't finished yet.
          */
@@ -787,7 +868,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
                     } ?: error("resource not found in plugin jar: $res")
                 }
                 assetsExtracted = true
-                LOG.info("[TermGlyph] static assets v$WEB_VERSION extracted to ${webDir.absolutePath}")
+                LOG.info("[CCGlyph] static assets v$WEB_VERSION extracted to ${webDir.absolutePath}")
             }
         }
     }

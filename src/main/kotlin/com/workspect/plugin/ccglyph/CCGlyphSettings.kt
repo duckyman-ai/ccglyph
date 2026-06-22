@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -8,11 +8,11 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.impl.AppEditorFontOptions
 
 /**
- * Application-level (global) terminal settings — stored in termglyph.xml
+ * Application-level (global) terminal settings — stored in ccglyph.xml
  * Registered as an applicationService in plugin.xml
  */
-@State(name = "TermGlyphSettings", storages = [Storage("termglyph.xml")])
-class TermGlyphSettings : PersistentStateComponent<TermGlyphSettings.State> {
+@State(name = "CCGlyphSettings", storages = [Storage("ccglyph.xml")])
+class CCGlyphSettings : PersistentStateComponent<CCGlyphSettings.State> {
 
     data class State(
         var fontFamily: String = DEFAULT_FONT, // default: JetBrains Mono — bundled via @font-face so it renders on every OS without a system-font install (NOT follow-IDE, because a non-bundled editor font wouldn't render on Windows)
@@ -125,8 +125,8 @@ class TermGlyphSettings : PersistentStateComponent<TermGlyphSettings.State> {
         val isWindows: Boolean
             get() = System.getProperty("os.name").lowercase().contains("win")
 
-        fun getInstance(): TermGlyphSettings =
-            ApplicationManager.getApplication().getService(TermGlyphSettings::class.java)
+        fun getInstance(): CCGlyphSettings =
+            ApplicationManager.getApplication().getService(CCGlyphSettings::class.java)
 
     }
 }

@@ -1,4 +1,4 @@
-rootProject.name = "termglyph"
+rootProject.name = "ccglyph"
 
 pluginManagement {
     repositories {

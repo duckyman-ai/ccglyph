@@ -1,8 +1,14 @@
-TermGlyph
-Copyright © 2026 Duckyman
+CCGlyph
+Copyright © 2026 Workspect
+
+CCGlyph is a fork of TermGlyph (https://github.com/duckyman-ai/termglyph),
+Copyright © 2026 Duckyman, used under its MIT License.
 
 This product bundles third-party assets that are NOT covered by the
 project's MIT license. Each retains its own license:
 
 1. xterm.js + addons (fit, unicode11, webgl) (https://xtermjs.org/)
    Licensed under the MIT License.
+
+2. JetBrains Mono (woff2) (https://www.jetbrains.com/lp/mono/)
+   Licensed under the SIL Open Font License 1.1 (see fonts/OFL.txt).

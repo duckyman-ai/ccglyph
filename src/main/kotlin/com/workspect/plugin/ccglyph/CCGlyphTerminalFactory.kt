@@ -1,5 +1,9 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
+import com.workspect.plugin.ccglyph.launch.LaunchSpec
+import com.workspect.plugin.ccglyph.launch.SessionLauncher
+import com.workspect.plugin.ccglyph.profile.NewSessionPopup
+import com.workspect.plugin.ccglyph.profile.ProfileService
 import com.intellij.CommonBundle
 import com.intellij.execution.ExecutionBundle
 import com.intellij.icons.AllIcons
@@ -27,21 +31,20 @@ import com.intellij.ui.content.ContentManagerListener
 import java.awt.BorderLayout
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
-import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
 /**
- * Creates the TermGlyph ToolWindow — one switchable **tab per terminal session**, exactly like the built-in
+ * Creates the CCGlyph ToolWindow — one switchable **tab per terminal session**, exactly like the built-in
  * terminal. The IDE's own `contentManager` renders the single tab strip (native look, no custom tabs, no double
  * row): the "+" beside the tabs opens a new terminal tab, the × closes one, and the tab's name/icon follows the
  * running process (e.g. "Claude Code" with its icon while claude runs). CWD of each terminal = the project folder.
  *
- * Native side-by-side split (Split Right / Split Down, etc.) is provided by `TermGlyphSplitContentProvider`
+ * Native side-by-side split (Split Right / Split Down, etc.) is provided by `CCGlyphSplitContentProvider`
  * (registered via the `com.intellij.toolWindow.splitContentProvider` extension point) — the platform's own split
  * actions, in the tab's right-click context menu, exactly like the built-in terminal.
  */
-class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
+class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         // JCEF is an optional dependency — if the Web Browser (JCEF) plugin is not installed
@@ -52,18 +55,22 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         }
 
         val ex = toolWindow as ToolWindowEx
+        toolWindow.stripeTitle = "Claude Code Glyph"
         // Enable the platform's native split + tab drag-reorder for this tool window. The split actions
         // (TW.SplitRight/Down/Unsplit) are added to the tab context menu only when isTabsReorderingAllowed,
         // which requires the ALLOW_DND_FOR_TABS client property AND the "ide.allow.split.and.reorder.in.tool.window"
-        // registry flag (on by default on 2024.2+). Our TermGlyphSplitContentProvider does the rest. Without this
+        // registry flag (on by default on 2024.2+). Our CCGlyphSplitContentProvider does the rest. Without this
         // line, "Split Right/Down" never appears in the right-click menu even though the provider is registered.
         ToolWindowContentUi.setAllowTabsReordering(toolWindow, true)
         // "+" beside the tabs opens a new terminal TAB (switchable, like the built-in terminal) — placed inline
         // in the content UI's tab strip via setTabActions (NOT setTitleActions, which puts it in the title bar).
         // Must be called on the EDT — createToolWindowContent is already on the EDT.
-        ex.setTabActions(NewTerminalAction(toolWindow, project))
-        // Gear (⋮) menu → "Settings..." (opens the TermGlyph settings page).
-        ex.setAdditionalGearActions(DefaultActionGroup().apply { add(SettingsAction()) })
+        ex.setTabActions(NewTerminalAction(toolWindow, project), ProfilesButton(toolWindow, project))
+        // Gear (⋮) menu → "Settings..." (opens the CCGlyph settings page). Profile picking lives on the
+        // header ProfilesButton now, so it's not duplicated here.
+        ex.setAdditionalGearActions(DefaultActionGroup().apply {
+            add(SettingsAction())
+        })
 
         // Always keep ≥1 terminal: when all are closed, open a new one immediately (prevents it vanishing from the sidebar)
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
@@ -77,9 +84,9 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
                 // contentCount drops to 0 on every split; checking contentCount alone would wrongly spawn a phantom
                 // "Local" tab each time. Checking live panels instead distinguishes a real "closed the last terminal"
                 // from a split reorg. On a genuine last-close, free the closed panel's slot first so the reopen is "Local".
-                val removed = event.content.getUserData(TermGlyphContent.PANEL_KEY)
-                if (!TermGlyphContent.hasLivePanels(excluding = removed)) {
-                    if (removed != null) TermGlyphContent.releaseSlot(removed)
+                val removed = event.content.getUserData(CCGlyphContent.PANEL_KEY)
+                if (!CCGlyphContent.hasLivePanels(excluding = removed)) {
+                    if (removed != null) CCGlyphContent.releaseSlot(removed)
                     // Reopen on the EDT and never let a failure here crash the tool window — e.g. if the shell
                     // can't launch on this machine, creating the terminal throws. Swallow it; the user can still
                     // open one via the "+" button, and the tab-close itself completes cleanly.
@@ -92,7 +99,7 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
             override fun selectionChanged(event: ContentManagerEvent) {
                 // When a tab becomes selected, force a repaint — JCEF drops the occluded canvas surface while a tab is
                 // in the background, so the screen looks stale until a paint is forced (the "blank until I click back" symptom).
-                val panel = event.content.getUserData(TermGlyphContent.PANEL_KEY) ?: return
+                val panel = event.content.getUserData(CCGlyphContent.PANEL_KEY) ?: return
                 ApplicationManager.getApplication().invokeLater {
                     if (!project.isDisposed && !panel.isDisposed) panel.refresh()
                 }
@@ -114,34 +121,40 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         val text = """
             <html><body style='padding:24px;font-family:sans-serif;color:#bbb'>
             <h2 style='color:#999;font-weight:normal'>JCEF Required</h2>
-            <p>TermGlyph needs the <b style='color:#ddd'>Web Browser (JCEF)</b> plugin to render the terminal.</p>
+            <p>CCGlyph needs the <b style='color:#ddd'>Web Browser (JCEF)</b> plugin to render the terminal.</p>
             <p>Open <b>Settings → Plugins → Marketplace</b>, search for <b>"Web Browser (JCEF)"</b>,<br/>
             install it, then <b>restart the IDE</b>.</p>
             <p style='color:#666;font-size:small;margin-top:24px'>Plugin ID: com.intellij.modules.jcef</p>
             """.trimIndent()
         panel.add(JLabel(text), BorderLayout.CENTER)
-        val content = ContentFactory.getInstance().createContent(panel, "TermGlyph", false)
+        val content = ContentFactory.getInstance().createContent(panel, "CCGlyph", false)
         content.isCloseable = false
         content.putUserData(ToolWindow.SHOW_CONTENT_ICON, java.lang.Boolean.TRUE)
-        content.icon = TermGlyphContent.TERMINAL_ICON
+        content.icon = CCGlyphContent.TERMINAL_ICON
         toolWindow.contentManager.addContent(content)
     }
 
     /** Opens a new terminal as a **switchable tab** in the contentManager and selects it (the IDE renders the tab strip). */
-    private fun createTerminalContent(toolWindow: ToolWindow, project: Project) {
+    private fun createTerminalContent(toolWindow: ToolWindow, project: Project, launchSpec: LaunchSpec? = null) {
+
         // Initial CWD = the project folder; Light projects without a base path → fall back to the user's home
         val workDir = project.basePath ?: System.getProperty("user.home")
-        val content = TermGlyphContent.createContent(project, toolWindow.disposable, workDir)
+        // createContent resolves a default Claude spec (last-used profile) when launchSpec is null.
+        val content = CCGlyphContent.createContent(project, toolWindow.disposable, workDir, launchSpec)
         // Wire the context-menu "New Tab" / "Close Tab" actions (the factory owns the tool window; the panel doesn't).
-        content.getUserData(TermGlyphContent.PANEL_KEY)?.let { panel ->
+        content.getUserData(CCGlyphContent.PANEL_KEY)?.let { panel ->
             panel.onNewTab = { createTerminalContent(toolWindow, project) }
             panel.onCloseTab = {
                 ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) toolWindow.contentManager.removeContent(content, true)
+                    // Remove from whatever manager actually owns this content (a split pane's manager, or the
+                    // top-level) — removing from the top-level when the tab lives in a split pane would no-op.
+                    if (!project.isDisposed) content.manager?.removeContent(content, true)
                 }
             }
         }
-        val cm = toolWindow.contentManager
+        // Add to the focused split pane — the content manager owning the currently-selected content — so a new
+        // tab opened from inside a split lands in the pane the user is looking at, not the top-level strip.
+        val cm = toolWindow.contentManager.selectedContent?.manager ?: toolWindow.contentManager
         cm.addContent(content)
         cm.setSelectedContent(content)
 
@@ -158,14 +171,14 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
     /** Before closing a tab, if a descendant process is running in it → ask the user; cancel = a veto via event.consume(). */
     private fun confirmCloseIfRunning(event: ContentManagerEvent, project: Project) {
         // A native split moves the content into a cell (firing contentRemoveQuery) — that's not a close, so don't prompt.
-        if (TermGlyphContent.splitting) return
-        val panel = event.content.getUserData(TermGlyphContent.PANEL_KEY) ?: return
+        if (CCGlyphContent.splitting) return
+        val panel = event.content.getUserData(CCGlyphContent.PANEL_KEY) ?: return
         if (!shouldTerminate(project, panel, event.content.displayName)) event.consume()
     }
 
     /** Force a repaint of the currently-selected terminal tab (used when the IDE window regains focus). */
     private fun refreshSelected(toolWindow: ToolWindow) {
-        val panel = toolWindow.contentManager.selectedContent?.getUserData(TermGlyphContent.PANEL_KEY) ?: return
+        val panel = toolWindow.contentManager.selectedContent?.getUserData(CCGlyphContent.PANEL_KEY) ?: return
         if (!panel.isDisposed) panel.refresh()
     }
 
@@ -217,21 +230,49 @@ class TermGlyphTerminalFactory : ToolWindowFactory, DumbAware {
     override fun isApplicable(project: Project): Boolean = true
 
     /** The "+" beside the tabs → opens a new terminal TAB (switchable), like the built-in terminal. */
+    /** The "+" beside the tabs → opens a new Claude Code tab immediately (last-used profile).
+     *  Every CCGlyph terminal is a Claude Code session — there is no plain-shell default. */
     private inner class NewTerminalAction(val toolWindow: ToolWindow, val project: Project) :
-        AnAction("New Terminal", "Open a new TermGlyph terminal tab", AllIcons.General.Add) {
+        AnAction("New Claude Session", "Open a new Claude Code session (last-used profile)", AllIcons.General.Add) {
 
-        override fun actionPerformed(e: AnActionEvent) = createTerminalContent(toolWindow, project)
+        override fun actionPerformed(e: AnActionEvent) {
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) runCatching { createTerminalContent(toolWindow, project) }
+            }
+        }
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
     }
 
-    /** "Settings..." in the gear menu (⋮) → opens Settings → Tools → TermGlyph directly */
-    private class SettingsAction :
-        AnAction("Settings...", "Open TermGlyph terminal settings", AllIcons.General.GearPlain) {
+    /** Header button beside "+": a popup listing every profile to start a session with, plus a separator
+     *  and "Manage Profiles…" at the bottom (opens the settings page). Reuses [NewSessionPopup] (same
+     *  list the gear menu shows) but anchors the popup just under this button. */
+    private inner class ProfilesButton(val toolWindow: ToolWindow, val project: Project) :
+        AnAction("Profiles", "Start a session with a profile, or manage profiles", AllIcons.General.ChevronDown) {
 
         override fun actionPerformed(e: AnActionEvent) {
-            // Open the TermGlyph settings page directly by the configurable's class (id="termglyph.settings", in the Tools group)
+            NewSessionPopup.show(project, anchor = e.inputEvent?.component) { profile ->
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    val dir = project.basePath ?: System.getProperty("user.home")
+                    val spec = profile?.let {
+                        SessionLauncher.launch(it, dir, ProfileService.getInstance().state.injectBridgeByDefault)
+                    }
+                    runCatching { createTerminalContent(toolWindow, project, spec) }
+                }
+            }
+        }
+
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+    }
+
+    /** "Settings..." in the gear menu (⋮) → opens Settings → Tools → CCGlyph directly */
+    private class SettingsAction :
+        AnAction("Settings...", "Open CCGlyph terminal settings", AllIcons.General.GearPlain) {
+
+        override fun actionPerformed(e: AnActionEvent) {
+            // Open the CCGlyph settings page directly by the configurable's class (id="ccglyph.settings", in the Tools group)
             ShowSettingsUtil.getInstance().showSettingsDialog(
-                e.project, TermGlyphSettingsConfigurable::class.java
+                e.project, CCGlyphSettingsConfigurable::class.java
             )
         }
 

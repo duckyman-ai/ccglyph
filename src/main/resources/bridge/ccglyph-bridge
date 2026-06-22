@@ -1,0 +1,30 @@
+#!/bin/sh
+# CCGlyph status bridge — invoked by Claude Code hooks & the statusLine command.
+# Usage: ccglyph-bridge <status|hook> <sessionId> <stateDir>
+#   status : stdin = statusLine JSON  → atomically replaces <stateDir>/<sid>/status.json
+#   hook   : stdin = hook-event JSON  → appends a line to <stateDir>/<sid>/events.jsonl
+#
+# Always exits 0 and writes nothing to stdout, so it never blocks or interferes with Claude.
+# The IDE plugin polls these files (StatusController) and drives the visual effects.
+set -u
+
+MODE="${1:-}"
+SID="${2:-}"
+DIR="${3:-}"
+
+[ -n "$SID" ] && [ -n "$DIR" ] || exit 0
+SDIR="$DIR/$SID"
+mkdir -p "$SDIR" 2>/dev/null || exit 0
+
+case "$MODE" in
+  status)
+    # Atomic snapshot of the latest rich status (model, cost, context %, rate limits).
+    cat > "$SDIR/status.json.tmp" 2>/dev/null && mv -f "$SDIR/status.json.tmp" "$SDIR/status.json" 2>/dev/null
+    ;;
+  hook)
+    # Append the raw event line; the plugin derives the state machine from hook_event_name.
+    cat >> "$SDIR/events.jsonl" 2>/dev/null
+    ;;
+esac
+
+exit 0

@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.pty4j.PtyProcessBuilder
 import com.pty4j.WinSize
@@ -10,28 +10,30 @@ class TerminalSession(
     private val darkBg: Boolean = true,
     /** Shell path resolved from the IDE's terminal settings (TerminalProjectOptionsProvider).
      *  When non-blank this is the same shell the user chose for the built-in terminal and takes
-     *  precedence over TermGlyph's own settings.  Null/blank → fall back to the resolution below. */
+     *  precedence over CCGlyph's own settings.  Null/blank → fall back to the resolution below. */
     ideShellPath: String? = null,
+    /** When set, the PTY runs this resolved spec (a claude/profile session) instead of a login shell. */
+    private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null,
 ) {
-    private val isWindows = TermGlyphSettings.isWindows
+    private val isWindows = CCGlyphSettings.isWindows
 
     // On Unix the user's login shell + --login to read .zshrc/.bashrc.
     // On Windows shells don't use --login (PowerShell / cmd.exe don't recognise it).
     // Priority:
-    //  1. TermGlyph's own shellPath setting (what the user picked in Settings → Tools → TermGlyph) — this
+    //  1. CCGlyph's own shellPath setting (what the user picked in Settings → Tools → CCGlyph) — this
     //     MUST win, otherwise the IDE's built-in terminal shell setting silently overrides the user's
-    //     explicit TermGlyph choice (e.g. they pick pwsh 7 here but the IDE default powershell.exe 5.1 runs).
+    //     explicit CCGlyph choice (e.g. they pick pwsh 7 here but the IDE default powershell.exe 5.1 runs).
     //  2. IDE's terminal setting (TerminalProjectOptionsProvider) as a fallback.
     //  3. Platform-specific default (PowerShell on Windows, $SHELL or /bin/zsh on Unix)
     private val shellPath: String = run {
-        val configured = TermGlyphSettings.getInstance().state.shellPath.trim()
+        val configured = CCGlyphSettings.getInstance().state.shellPath.trim()
         if (configured.isNotBlank()) {
             validatePlatform(configured)?.let { return@run it }
         }
         if (!ideShellPath.isNullOrBlank()) {
             validatePlatform(ideShellPath)?.let { return@run it }
         }
-        TermGlyphSettings.defaultShell()
+        CCGlyphSettings.defaultShell()
     }
 
     /** Returns null if [path] can't spawn on this platform (so the caller falls back to the default):
@@ -90,10 +92,21 @@ class TerminalSession(
     // backend (WinPty) so the terminal still opens, just without emoji. We also retry across shell candidates
     // (resolved shell → default → PowerShell 5.1 → cmd) so a missing/mismatched shell path never blocks init.
     private val process: com.pty4j.PtyProcess = run {
+        // Profile/claude launch: run the spec's argv verbatim (e.g. `zsh -l -c 'exec claude …'`)
+        // with the profile + bridge env — no shell-candidate fallback. ConPTY retry on Windows.
+        if (launchSpec != null) {
+            if (isWindows) {
+                for (useConPty in listOf(true, false)) {
+                    try { return@run createSpecPty(launchSpec, useConPty) } catch (_: Throwable) {}
+                }
+                throw java.io.IOException("Couldn't start PTY for ${launchSpec.command.joinToString(" ")}")
+            }
+            return@run createSpecPty(launchSpec, false)
+        }
         val sysRoot = System.getenv("SystemRoot") ?: "C:\\Windows"
         val candidates = linkedSetOf(
             shellPath,
-            TermGlyphSettings.defaultShell(),
+            CCGlyphSettings.defaultShell(),
             "$sysRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
             "$sysRoot\\system32\\cmd.exe",
         ).toList()
@@ -130,6 +143,29 @@ class TerminalSession(
         return builder.start()
     }
 
+    /** Build + start one PTY for a resolved [com.workspect.plugin.ccglyph.launch.LaunchSpec]
+     *  (a claude/profile session): the spec's argv + merged env + cwd. */
+    private fun createSpecPty(
+        spec: com.workspect.plugin.ccglyph.launch.LaunchSpec,
+        useConPty: Boolean,
+    ): com.pty4j.PtyProcess {
+        val builder = PtyProcessBuilder()
+            .setCommand(spec.command)
+            .setEnvironment(System.getenv().toMutableMap().apply {
+                put("TERM", "xterm-256color")
+                put("COLORTERM", "truecolor")
+                put("COLORFGBG", if (darkBg) "15;0" else "0;15")
+                put("LANG", "en_US.UTF-8")
+                put("LC_ALL", "en_US.UTF-8")
+                putAll(spec.env)
+            })
+            .setDirectory(spec.cwd)
+            .setInitialColumns(80)
+            .setInitialRows(24)
+        if (isWindows) builder.setUseWinConPty(useConPty)
+        return builder.start()
+    }
+
     private val writer = process.outputStream
         .bufferedWriter(StandardCharsets.UTF_8)
 
@@ -149,7 +185,7 @@ class TerminalSession(
             }
         }.apply {
             isDaemon = true
-            name = "termglyph-reader"
+            name = "ccglyph-reader"
             start()
         }
     }
