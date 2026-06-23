@@ -9,8 +9,10 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.AnActionButton
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.table.JBTable
+import com.workspect.plugin.ccglyph.CCGlyphContent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.Icon
 import javax.swing.JPanel
 import javax.swing.JTable
 import javax.swing.table.AbstractTableModel
@@ -32,6 +34,9 @@ class ProfilesConfigurable : SearchableConfigurable {
             autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
             rowHeight = 24
             preferredScrollableViewportSize = java.awt.Dimension(720, 160)
+            // First column = the profile's tab icon (rendered via getColumnClass → Icon); keep it narrow + centred.
+            columnModel.getColumn(0).preferredWidth = 44
+            columnModel.getColumn(0).maxWidth = 52
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) { if (e.clickCount >= 2) editSelected() }
             })
@@ -94,19 +99,22 @@ class ProfilesConfigurable : SearchableConfigurable {
     }
 
     private class ProfileTableModel : AbstractTableModel() {
-        private val cols = arrayOf("Name", "Model", "Settings JSON", "Env")
+        private val cols = arrayOf("Icon", "Name", "Model", "Settings JSON", "Env")
         private fun list() = ProfileService.getInstance().profiles()
         override fun getRowCount() = list().size
         override fun getColumnCount() = cols.size
         override fun getColumnName(c: Int) = cols[c]
         override fun isCellEditable(r: Int, c: Int) = false
-        override fun getValueAt(r: Int, c: Int): String {
+        // Column 0 holds an Icon (so JBTable renders it as an icon, not a toString); the rest are text.
+        override fun getColumnClass(c: Int): Class<*> = if (c == 0) Icon::class.java else Any::class.java
+        override fun getValueAt(r: Int, c: Int): Any {
             val p = list()[r]
             return when (c) {
-                0 -> p.name
-                1 -> p.model
-                2 -> p.settingsPath
-                3 -> if (p.env.isBlank()) "" else "${p.env.lineSequence().count { it.contains('=') }} vars"
+                0 -> CCGlyphContent.profileIcon(p.icon)
+                1 -> p.name
+                2 -> p.model
+                3 -> p.settingsPath
+                4 -> if (p.env.isBlank()) "" else "${p.env.lineSequence().count { it.contains('=') }} vars"
                 else -> ""
             }
         }

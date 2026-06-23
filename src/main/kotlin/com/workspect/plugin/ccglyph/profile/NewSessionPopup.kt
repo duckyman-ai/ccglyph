@@ -7,8 +7,10 @@ import com.intellij.openapi.ui.popup.ListSeparator
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.ui.awt.RelativePoint
+import com.workspect.plugin.ccglyph.CCGlyphContent
 import java.awt.Component
 import java.awt.Point
+import javax.swing.Icon
 
 /** What the user picked from the New-Session popup. "Manage Profiles…" is handled internally
  *  (it opens Settings) and never reaches [NewSessionPopup.show]'s onChoose. */
@@ -54,6 +56,15 @@ object NewSessionPopup {
         val step = object : BaseListPopupStep<String>("New Session", rows) {
             override fun getTextFor(value: String) = value
             override fun isSpeedSearchEnabled() = true
+            // Icon per row: Plain terminal → brand; profiles → their tab icon; Manage → none.
+            override fun getIconFor(value: String): Icon? {
+                val key = keyForRow[value] ?: return null
+                return when (key) {
+                    PLAIN -> CCGlyphContent.TERMINAL_ICON
+                    MANAGE -> null
+                    else -> ProfileService.getInstance().byId(key)?.let { CCGlyphContent.profileIcon(it.icon) }
+                }
+            }
             // Rules between sections: above the first profile (Terminal ↔ Profiles) and above Manage (footer).
             override fun getSeparatorAbove(value: String): ListSeparator? =
                 if (value == firstProfileText || value == MANAGE_LABEL) ListSeparator() else null
@@ -76,6 +87,13 @@ object NewSessionPopup {
             }
         }
         val popup = JBPopupFactory.getInstance().createListPopup(step)
+        // Pad the top of the list so the first row isn't flush against the popup's top edge.
+        fun findList(c: java.awt.Component): javax.swing.JList<*>? = when (c) {
+            is javax.swing.JList<*> -> c
+            is java.awt.Container -> c.components.firstNotNullOfOrNull { findList(it) }
+            else -> null
+        }
+        findList(popup.content)?.border = javax.swing.BorderFactory.createEmptyBorder(6, 0, 6, 0)
         if (anchor != null && anchor.isShowing) {
             popup.show(RelativePoint(anchor, Point(0, anchor.height + 2)))
         } else {

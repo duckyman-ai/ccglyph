@@ -73,7 +73,6 @@ object SessionLauncher {
             if (runtimePath != null) { add("--settings"); add(runtimePath) }
             if (profile.model.isNotBlank()) { add("--model"); add(profile.model) }
             if (profile.permissionMode.isNotBlank()) { add("--permission-mode"); add(profile.permissionMode) }
-            if (profile.resumeLast) add("--resume")
             if (profile.extraArgs.isNotBlank()) addAll(profile.extraArgs.trim().split(Regex("\\s+")))
         }
 

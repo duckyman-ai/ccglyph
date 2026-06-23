@@ -23,8 +23,6 @@ data class Profile(
     var env: String = "",
     /** Optional CLAUDE_CONFIG_DIR — full isolation of credentials/history/projects. */
     var configDir: String = "",
-    /** Auto-append `--resume` for the last session in this profile's config dir. */
-    var resumeLast: Boolean = false,
     /** Process-icon name for the tab (claude/codex/...). Blank = auto-detect. */
     var icon: String = "",
 )

@@ -28,10 +28,10 @@ class ProfileService : PersistentStateComponent<ProfileService.State> {
     override fun getState(): State = myState
     override fun loadState(state: State) { myState = state }
 
-    /** All profiles, seeding a Default profile on first use so the popup is never empty. */
+    /** All profiles, seeding a "Claude" profile on first use so the popup is never empty. */
     fun profiles(): MutableList<Profile> {
         if (myState.profiles.isEmpty()) {
-            myState.profiles.add(Profile(id = newId(), name = "Default"))
+            myState.profiles.add(Profile(id = newId(), name = "Claude"))
         }
         return myState.profiles
     }

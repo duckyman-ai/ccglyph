@@ -118,12 +118,12 @@ internal object CCGlyphContent {
     }
 
     /** The spec for a terminal opened as a Claude session with no explicit profile — the last-used profile
-     *  (or a fresh "Default"). Used by the FIRST tab (opening the tool window → land on Claude), by native
+     *  (or a fresh "Claude"). Used by the FIRST tab (opening the tool window → land on Claude), by native
      *  splits, and by the "+" button when its setting is "Claude session". A plain shell comes from
      *  SessionLauncher.plainShell (the popup's "Plain terminal", or "+" when set to "Plain terminal"). */
     internal fun defaultClaudeSpec(project: Project, workDir: String): LaunchSpec {
         val svc = ProfileService.getInstance()
-        val profile = svc.lastUsed() ?: Profile().apply { id = svc.newId(); name = "Default" }
+        val profile = svc.lastUsed() ?: Profile().apply { id = svc.newId(); name = "Claude" }
         return SessionLauncher.launch(profile, workDir, svc.state.injectBridgeByDefault)
     }
 
@@ -131,9 +131,34 @@ internal object CCGlyphContent {
      *  SVG doesn't prevent other icons from loading.  Null values fall back to TERMINAL_ICON. */
     private val iconMap = mutableMapOf<String, Icon?>()
     private fun iconFor(name: String): Icon? =
-        iconMap.getOrPut(name) { ICON_PATHS[name]?.let { loadIcon(it) } }
+        // ICON_PATHS covers process-detected tools (claude-code, vim, …); anything else is tried as a
+        // provider icon under /icons/ai/<name>.svg (the profile Tab-icon picker choices — see AI_ICONS).
+        iconMap.getOrPut(name) { ICON_PATHS[name]?.let { loadIcon(it) } ?: loadIcon("/icons/ai/$name.svg") }
+
+    /** The icon to show for a profile's tab-icon setting: resolves blank → claude-code, AI stems → /icons/ai,
+     *  legacy names (claude/codex/vim/…) → the process-icon map. Used by the profiles table + new-session popup. */
+    internal fun profileIcon(name: String): Icon = iconFor(name.ifBlank { "claude" }) ?: TERMINAL_ICON
 
     private fun loadIcon(path: String): Icon? = IconLoader.findIcon(path, CCGlyphContent::class.java)
+
+    /** Provider icons offered as the profile "Tab icon" choices (stems under src/main/resources/icons/ai).
+     *  Each pair is (resource stem, display label). Blank profile icon = "(auto)" → the claude/brand icon. */
+    val AI_ICONS: List<Pair<String, String>> = listOf(
+        "claude-ai" to "Claude",
+        "openai" to "OpenAI",
+        "deepseek" to "DeepSeek",
+        "gemini" to "Gemini",
+        "qwen" to "Qwen",
+        "kimi" to "Kimi",
+        "xai" to "xAI",
+        "ollama" to "Ollama",
+        "openrouter" to "OpenRouter",
+        "meta" to "Meta",
+        "minimax" to "MiniMax",
+        "xiaomi" to "Xiaomi",
+        "zai" to "Zai",
+        "alibaba-cloud" to "Alibaba Cloud",
+    )
 
     /** Process name → icon resource path. */
     private val ICON_PATHS: Map<String, String> = mapOf(
@@ -188,15 +213,14 @@ internal object CCGlyphContent {
         }
 
         private fun colors(): Pair<java.awt.Color, java.awt.Color>? = when (state) {
-            // Vivid shades (matching the gradient beam) — the old dark tones (#4c1d95/#1e3a8a/#b45309) were
-            // invisible on a dark tab background; these read clearly in dark AND light mode.
+            // Deep tones so the tab title stays readable on the coloured tab.
             com.workspect.plugin.ccglyph.status.ClaudeState.THINKING ->
-                java.awt.Color(0x7c, 0x3a, 0xed) to java.awt.Color(0x25, 0x63, 0xeb)   // vivid purple ↔ blue
+                java.awt.Color(0x4c, 0x1d, 0x95) to java.awt.Color(0x1e, 0x3a, 0x8a)   // purple ↔ blue
             com.workspect.plugin.ccglyph.status.ClaudeState.TOOL_RUNNING ->
-                java.awt.Color(0x25, 0x63, 0xeb) to java.awt.Color(0x06, 0xb6, 0xd4)   // vivid blue ↔ cyan
+                java.awt.Color(0x1e, 0x3a, 0x8a) to java.awt.Color(0x0e, 0x74, 0x9e)   // blue ↔ cyan
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_PERMISSION,
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_INPUT ->
-                java.awt.Color(0xf5, 0x9e, 0x0b) to java.awt.Color(0xfb, 0xbf, 0x24)   // vivid amber blink
+                java.awt.Color(0xb4, 0x53, 0x09) to java.awt.Color(0x42, 0x3a, 0x06)   // amber blink
             else -> null
         }
 

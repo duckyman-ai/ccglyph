@@ -17,6 +17,7 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
+import javax.swing.BorderFactory
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JButton
 import javax.swing.JCheckBox
@@ -40,8 +41,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var lineHeightSpinner: JSpinner
     private lateinit var letterSpacingSpinner: JSpinner
     private lateinit var shellCombo: ComboBox<String>
-    private lateinit var scrollbackSpinner: JSpinner
-    private lateinit var cursorCombo: ComboBox<String>
     private lateinit var plusModeCombo: ComboBox<String>
     // Status chip & effects (global — apply to every profile/session, see CCGlyphSettings.State).
     private lateinit var beamCb: JCheckBox
@@ -82,10 +81,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         sizeSpinner = JSpinner(SpinnerNumberModel(effFontSize, 6, 72, 1))
         lineHeightSpinner = JSpinner(SpinnerNumberModel(s.lineHeight, 1.0, 3.0, 0.1))
         letterSpacingSpinner = JSpinner(SpinnerNumberModel(s.letterSpacing, 0.0, 8.0, 0.5))
-        scrollbackSpinner = JSpinner(SpinnerNumberModel(s.scrollback, 0, 1_000_000, 1000))
-        cursorCombo = ComboBox(arrayOf("block", "underline", "bar")).apply {
-            selectedItem = s.cursorStyle
-        }
         // What the "+" button opens (also reopen / in-tab new-tab). The first tab is always a Claude session.
         plusModeCombo = ComboBox(arrayOf("Claude session", "Plain terminal")).apply {
             selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
@@ -128,6 +123,9 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipCtxCb = JCheckBox("Context %", s.chipShowContext)
         dismissCb = JCheckBox("Clear the waiting effect when I start typing", s.dismissWaitingOnInput)
         updateCb = JCheckBox("Update Claude Code before starting a session", s.updateClaudeBeforeStart)
+        // "Show in chip" sub-options only matter when the chip is on — grey them out when it's off.
+        chipCb.addItemListener { syncChipSubEnabled() }
+        syncChipSubEnabled()
 
         // UI DSL panel — the IntelliJ-native settings layout. Its first row sits flush at the top of the
         // settings content area (no leading inset), matching every other IDE settings page. Components are
@@ -138,17 +136,22 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             row("Font:") { cell(fontCombo); label("Fallback:"); cell(fallbackCombo) }
             row("Font size:") { cell(sizeSpinner); label("Line height:"); cell(lineHeightSpinner); label("Spacing (px):"); cell(letterSpacingSpinner) }
             row("Shell:") { cell(shellCombo); cell(browseButton) }
-            row("Scrollback (lines):") { cell(scrollbackSpinner) }
-            row("Cursor style:") { cell(cursorCombo) }
+            section("Claude Code")
             row("New tab (+) opens:") { cell(plusModeCombo) }
-            section("Status & effects")
+            row { cell(updateCb) }
+            section("Status & Effects")
             row("Effects:") { cell(beamCb); cell(tabCb) }
             row { cell(chipCb) }
-            row("Show in chip:") { cell(chipModelCb); cell(chipCostCb); cell(chipCtxCb) }
+            // "Show in chip" sits under "Show status chip" — nest it in a left-padded panel so it reads as a sub-row.
+            row {
+                cell(javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 28, 0)).apply {
+                    border = BorderFactory.createEmptyBorder(0, 20, 0, 0)
+                    add(javax.swing.JLabel("Show in chip:"))
+                    add(chipModelCb); add(chipCostCb); add(chipCtxCb)
+                })
+            }
             row { cell(dismissCb) }
-            section("Claude Code")
-            row { cell(updateCb) }
-            section("Claude Code Profiles")
+            section("Profiles")
             row { cell(profiles.createComponent()).resizableColumn() }
         }
     }
@@ -178,8 +181,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             round1((lineHeightSpinner.value as Number).toDouble()) != round1(s.lineHeight) ||
             round1((letterSpacingSpinner.value as Number).toDouble()) != round1(s.letterSpacing) ||
             (shellCombo.selectedItem as? String) != s.shellPath ||
-            scrollbackSpinner.value != s.scrollback ||
-            cursorCombo.selectedItem != s.cursorStyle ||
             (plusModeCombo.selectedItem == "Plain terminal") != s.plusOpensPlainShell ||
             beamCb.isSelected != s.beamEnabled ||
             tabCb.isSelected != s.tabColorEnabled ||
@@ -206,8 +207,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         s.letterSpacing = round1((letterSpacingSpinner.value as Number).toDouble())
         s.shellPath = (shellCombo.selectedItem as? String)?.trim()?.ifBlank { CCGlyphSettings.defaultShell() }
             ?: CCGlyphSettings.defaultShell()
-        s.scrollback = (scrollbackSpinner.value as Number).toInt()
-        s.cursorStyle = cursorCombo.selectedItem as String
         s.plusOpensPlainShell = plusModeCombo.selectedItem == "Plain terminal"
         s.beamEnabled = beamCb.isSelected
         s.tabColorEnabled = tabCb.isSelected
@@ -229,8 +228,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         lineHeightSpinner.value = s.lineHeight
         letterSpacingSpinner.value = s.letterSpacing
         shellCombo.selectedItem = s.shellPath
-        scrollbackSpinner.value = s.scrollback
-        cursorCombo.selectedItem = s.cursorStyle
         plusModeCombo.selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
         beamCb.isSelected = s.beamEnabled
         tabCb.isSelected = s.tabColorEnabled
@@ -240,6 +237,15 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipCtxCb.isSelected = s.chipShowContext
         dismissCb.isSelected = s.dismissWaitingOnInput
         updateCb.isSelected = s.updateClaudeBeforeStart
+        syncChipSubEnabled()
+    }
+
+    /** Enable/disable the "Show in chip" sub-options to match the "Show status chip" toggle. */
+    private fun syncChipSubEnabled() {
+        val on = chipCb.isSelected
+        chipModelCb.isEnabled = on
+        chipCostCb.isEnabled = on
+        chipCtxCb.isEnabled = on
     }
 
     private fun round1(v: Double): Double = (v * 10.0).roundToInt() / 10.0

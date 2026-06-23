@@ -6,18 +6,23 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.TitledSeparator
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.FormBuilder
+import com.workspect.plugin.ccglyph.CCGlyphContent
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Dimension
-import javax.swing.JCheckBox
+import javax.swing.DefaultListCellRenderer
 import javax.swing.JComponent
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.JTable
 import javax.swing.JTextField
+import javax.swing.ListCellRenderer
 import javax.swing.table.AbstractTableModel
 
 /** Modal editor for a single [Profile]. Sections use IntelliJ's TitledSeparator; the Env table is the
@@ -28,13 +33,17 @@ class ProfileEditorDialog(
 ) : DialogWrapper(project) {
 
     private val name = JTextField(profile.name)
-    private val icon = JTextField(profile.icon)
+    /** Tab-icon choices: "(auto)" (blank → claude/brand) + the bundled AI provider icons (icons/ai). */
+    private val iconStems = arrayOf("") + CCGlyphContent.AI_ICONS.map { it.first }.toTypedArray()
+    private val icon = ComboBox(iconStems).apply {
+        renderer = aiIconRenderer()
+        selectedItem = profile.icon.takeIf { it in iconStems } ?: ""
+    }
     private val model = JTextField(profile.model)
     private val permissionMode = ComboBox(arrayOf("default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions")).apply {
         selectedItem = profile.permissionMode.takeIf { it.isNotBlank() } ?: "default"
     }
     private val extraArgs = JTextField(profile.extraArgs)
-    private val resumeLast = JCheckBox("Resume the last session in this profile", profile.resumeLast)
     private val configDir = TextFieldWithBrowseButton().apply {
         text = profile.configDir
         addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFolderDescriptor())
@@ -87,8 +96,8 @@ class ProfileEditorDialog(
         val top = FormBuilder.createFormBuilder()
             .addLabeledComponent("Name", name, 1, false)
             .addComponent(TitledSeparator("Appearance"))
-            .addLabeledComponent("Tab icon", icon, 1, false)
-            .addTooltip("Icon name: claude / codex / gemini / vim … blank = auto.")
+            .addLabeledComponent("Icon", icon, 1, false)
+            .addTooltip("Provider icon shown on the tab")
             .addComponent(TitledSeparator("Claude Code"))
             .addLabeledComponent("Model", model, 1, false)
             .addTooltip("--model override (blank = claude's default).")
@@ -96,7 +105,6 @@ class ProfileEditorDialog(
             .addTooltip("Claude permission mode: default · acceptEdits · plan · auto · dontAsk · bypassPermissions.")
             .addLabeledComponent("Extra arguments", extraArgs, 1, false)
             .addTooltip("Additional `claude` CLI flags, e.g. --resume <id>.")
-            .addComponent(resumeLast)
             .panel
 
         val envHeader = FormBuilder.createFormBuilder()
@@ -149,16 +157,32 @@ class ProfileEditorDialog(
         if (envTable.isEditing) envTable.cellEditor?.stopCellEditing()
         if (name.text.isNullOrBlank()) { name.requestFocusInWindow(); return }
         profile.name = ProfileService.getInstance().uniqueName(name.text.trim(), profile.id)
-        profile.icon = icon.text.trim()
+        profile.icon = (icon.selectedItem as? String).orEmpty()
         profile.model = model.text.trim()
         profile.permissionMode = (permissionMode.selectedItem as? String).orEmpty()
         profile.extraArgs = extraArgs.text.trim()
-        profile.resumeLast = resumeLast.isSelected
         profile.configDir = configDir.text.trim()
         profile.settingsPath = settingsPath.text.trim()
         profile.env = envRows
             .filter { it[0].isNotBlank() }
             .joinToString("\n") { "${it[0]}=${it[1]}" }
         super.doOKAction()
+    }
+
+    /** Renders each Tab-icon choice with its actual icon + provider name. The first option ("", = auto) is
+     *  rendered blank so the dropdown opens on an empty choice. */
+    private fun aiIconRenderer(): ListCellRenderer<Any?> = object : DefaultListCellRenderer() {
+        override fun getListCellRendererComponent(
+            list: JList<*>?, value: Any?, index: Int, selected: Boolean, hasFocus: Boolean,
+        ): Component {
+            super.getListCellRendererComponent(list, value, index, selected, hasFocus)
+            val stem = value as? String ?: ""
+            if (stem.isEmpty()) { text = ""; icon = null }
+            else {
+                text = CCGlyphContent.AI_ICONS.toMap()[stem] ?: stem
+                icon = IconLoader.findIcon("/icons/ai/$stem.svg", ProfileEditorDialog::class.java)
+            }
+            return this
+        }
     }
 }
