@@ -32,15 +32,16 @@
   #ccg-beam { position:fixed; top:0; left:0; right:0; height:3px; z-index:1200; opacity:0;
     background:linear-gradient(90deg,#7c3aed,#2563eb,#06b6d4,#2563eb,#7c3aed);
     background-size:200% 100%; transition:opacity .3s; pointer-events:none; }
-  #ccg-beam.on { opacity:1; animation:ccg-flow 1.1s linear infinite; }
-  #ccg-beam.wait { background:linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b); opacity:.95; animation:ccg-pulse 1s ease-in-out infinite; }
+  /* Static colours only — infinite CSS animations made Chromium repaint the beam every frame, competing
+     with xterm and lagging the terminal whenever any state effect was active. The beam is now a steady
+     coloured bar (purple/blue = busy, amber = waiting, red = high context). */
+  #ccg-beam.on { opacity:1; }
+  #ccg-beam.wait { background:linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b); opacity:.95; }
   #ccg-beam.high { background:linear-gradient(90deg,#ef4444,#f97316,#ef4444); opacity:1; }
-  @keyframes ccg-flow { to { background-position:200% 0; } }
-  @keyframes ccg-pulse { 50% { opacity:.35; } }
   #ccg-chip { position:fixed; top:7px; right:14px; z-index:1150; display:none; align-items:center; gap:8px;
     padding:3px 10px; border-radius:999px; background:var(--tg-bg,#1e1e1e);
     border:1px solid var(--tg-border,rgba(128,128,128,0.4)); color:var(--tg-fg,#eee);
-    font:11px/1.4 system-ui,sans-serif; box-shadow:0 2px 12px rgba(0,0,0,0.45);
+    font:11px/1.4 system-ui,sans-serif; box-shadow:0 1px 6px rgba(0,0,0,0.22);
     user-select:none; -webkit-backdrop-filter:blur(6px); pointer-events:none; }
   #ccg-chip .ccg-dot { width:7px; height:7px; border-radius:50%; background:#888; }
   #ccg-chip.think .ccg-dot { background:#a78bfa; box-shadow:0 0 7px #a78bfa; }
