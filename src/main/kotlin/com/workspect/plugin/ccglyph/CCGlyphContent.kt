@@ -62,8 +62,9 @@ internal object CCGlyphContent {
     /** Build a fully-wired terminal Content (panel + process→tab title/icon swap + disposal). Does NOT add it to a
      *  content manager — the factory adds+selects it (for a new tab); the platform adds it (for a native split). */
     fun createContent(project: Project, disposable: Disposable, workDir: String, launchSpec: LaunchSpec? = null): Content {
-        // A terminal is always a Claude Code session: with no explicit spec (e.g. a native split pane) fall back
-        // to the last-used profile (or Default) — never leave it as a plain shell.
+        // With no explicit spec (the native split-pane path — splits are Claude sessions by design) fall back
+        // to the last-used profile (or Default). The "+" / first-tab / reopen paths pass an explicit PLAIN-shell
+        // spec from the factory, so only a split lands here with null.
         val spec = launchSpec ?: defaultClaudeSpec(project, workDir)
         // NOTE: we no longer read TerminalProjectOptionsProvider.getShellPath() here — on 2025.3+/Android Studio
         // 2026.1 it's a blocking call that's FORBIDDEN on the EDT (throws IllegalStateException "This method is
@@ -112,10 +113,11 @@ internal object CCGlyphContent {
         return content
     }
 
-    /** The spec used when a terminal is opened without an explicit profile — the last-used profile (or a fresh
-     *  "Default"), launched as a Claude session. Shared by the new-tab path and the native split provider so a
-     *  split pane is a Claude session, not a plain shell. */
-    private fun defaultClaudeSpec(project: Project, workDir: String): LaunchSpec {
+    /** The spec for a terminal opened as a Claude session with no explicit profile — the last-used profile
+     *  (or a fresh "Default"). Used by the FIRST tab (opening the tool window → land on Claude), by native
+     *  splits, and by the "+" button when its setting is "Claude session". A plain shell comes from
+     *  SessionLauncher.plainShell (the popup's "Plain terminal", or "+" when set to "Plain terminal"). */
+    internal fun defaultClaudeSpec(project: Project, workDir: String): LaunchSpec {
         val svc = ProfileService.getInstance()
         val profile = svc.lastUsed() ?: Profile().apply { id = svc.newId(); name = "Default" }
         return SessionLauncher.launch(profile, workDir, svc.state.injectBridgeByDefault)

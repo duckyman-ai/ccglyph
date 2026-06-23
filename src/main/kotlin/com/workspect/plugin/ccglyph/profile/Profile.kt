@@ -21,8 +21,6 @@ data class Profile(
     var extraArgs: String = "",
     /** Extra env vars, one `KEY=VALUE` per line. Overrides the settings.json `env` block key-for-key. */
     var env: String = "",
-    /** Run `claude update` once in the terminal before starting the session. */
-    var updateBeforeStart: Boolean = false,
     /** Optional CLAUDE_CONFIG_DIR — full isolation of credentials/history/projects. */
     var configDir: String = "",
     /** Auto-append `--resume` for the last session in this profile's config dir. */

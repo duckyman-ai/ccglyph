@@ -34,7 +34,6 @@ class ProfileEditorDialog(
         selectedItem = profile.permissionMode.takeIf { it.isNotBlank() } ?: "default"
     }
     private val extraArgs = JTextField(profile.extraArgs)
-    private val updateBeforeStart = JCheckBox("Update Claude Code before starting", profile.updateBeforeStart)
     private val resumeLast = JCheckBox("Resume the last session in this profile", profile.resumeLast)
     private val configDir = TextFieldWithBrowseButton().apply {
         text = profile.configDir
@@ -97,7 +96,6 @@ class ProfileEditorDialog(
             .addTooltip("Claude permission mode: default · acceptEdits · plan · auto · dontAsk · bypassPermissions.")
             .addLabeledComponent("Extra arguments", extraArgs, 1, false)
             .addTooltip("Additional `claude` CLI flags, e.g. --resume <id>.")
-            .addComponent(updateBeforeStart)
             .addComponent(resumeLast)
             .panel
 
@@ -155,7 +153,6 @@ class ProfileEditorDialog(
         profile.model = model.text.trim()
         profile.permissionMode = (permissionMode.selectedItem as? String).orEmpty()
         profile.extraArgs = extraArgs.text.trim()
-        profile.updateBeforeStart = updateBeforeStart.isSelected
         profile.resumeLast = resumeLast.isSelected
         profile.configDir = configDir.text.trim()
         profile.settingsPath = settingsPath.text.trim()

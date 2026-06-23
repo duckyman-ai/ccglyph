@@ -2,6 +2,7 @@ package com.workspect.plugin.ccglyph
 
 import com.workspect.plugin.ccglyph.launch.LaunchSpec
 import com.workspect.plugin.ccglyph.launch.SessionLauncher
+import com.workspect.plugin.ccglyph.profile.NewSessionChoice
 import com.workspect.plugin.ccglyph.profile.NewSessionPopup
 import com.workspect.plugin.ccglyph.profile.ProfileService
 import com.intellij.CommonBundle
@@ -112,7 +113,10 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
             override fun windowActivated(e: WindowEvent) = refreshSelected(toolWindow)
         })
 
-        createTerminalContent(toolWindow, project)
+        // The FIRST tab lands on a Claude Code session (the plugin's purpose) — last-used profile or Default.
+        // Subsequent "+" taps open plain shells; see createTerminalContent.
+        val workDir = project.basePath ?: System.getProperty("user.home")
+        createTerminalContent(toolWindow, project, CCGlyphContent.defaultClaudeSpec(project, workDir))
     }
 
     /** Show a banner when JCEF is missing (Android Studio / Community Edition without the JCEF plugin). */
@@ -134,13 +138,23 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(content)
     }
 
+    /** What the "+" / reopen / in-tab new-tab paths open — the user's preference (a Claude session by
+     *  default, or a plain shell). The FIRST tab always opens a Claude session regardless (see
+     *  createToolWindowContent), as do explicit popup/profile specs. */
+    private fun plusSpec(project: Project, workDir: String): LaunchSpec =
+        if (CCGlyphSettings.getInstance().state.plusOpensPlainShell) SessionLauncher.plainShell(workDir)
+        else CCGlyphContent.defaultClaudeSpec(project, workDir)
+
     /** Opens a new terminal as a **switchable tab** in the contentManager and selects it (the IDE renders the tab strip). */
     private fun createTerminalContent(toolWindow: ToolWindow, project: Project, launchSpec: LaunchSpec? = null) {
 
         // Initial CWD = the project folder; Light projects without a base path → fall back to the user's home
         val workDir = project.basePath ?: System.getProperty("user.home")
-        // createContent resolves a default Claude spec (last-used profile) when launchSpec is null.
-        val content = CCGlyphContent.createContent(project, toolWindow.disposable, workDir, launchSpec)
+        // No explicit spec = a quick terminal → the user's "+" preference (Claude session by default, or a
+        // plain shell). The first tab and explicit popup/profile specs bypass this. (Native splits call
+        // createContent directly with null → a Claude session — see CCGlyphContent.defaultClaudeSpec.)
+        val spec = launchSpec ?: plusSpec(project, workDir)
+        val content = CCGlyphContent.createContent(project, toolWindow.disposable, workDir, spec)
         // Wire the context-menu "New Tab" / "Close Tab" actions (the factory owns the tool window; the panel doesn't).
         content.getUserData(CCGlyphContent.PANEL_KEY)?.let { panel ->
             panel.onNewTab = { createTerminalContent(toolWindow, project) }
@@ -229,11 +243,10 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
     @Suppress("OVERRIDE_DEPRECATION")
     override fun isApplicable(project: Project): Boolean = true
 
-    /** The "+" beside the tabs → opens a new terminal TAB (switchable), like the built-in terminal. */
-    /** The "+" beside the tabs → opens a new Claude Code tab immediately (last-used profile).
-     *  Every CCGlyph terminal is a Claude Code session — there is no plain-shell default. */
+    /** The "+" beside the tabs → opens a new terminal TAB (a plain shell), matching the built-in terminal's
+     *  "+" convention. A Claude Code session is launched via the Profiles button (▼) beside it. */
     private inner class NewTerminalAction(val toolWindow: ToolWindow, val project: Project) :
-        AnAction("New Claude Session", "Open a new Claude Code session (last-used profile)", AllIcons.General.Add) {
+        AnAction("New Terminal", "Open a new terminal (plain shell)", AllIcons.General.Add) {
 
         override fun actionPerformed(e: AnActionEvent) {
             ApplicationManager.getApplication().invokeLater {
@@ -247,15 +260,17 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
      *  and "Manage Profiles…" at the bottom (opens the settings page). Reuses [NewSessionPopup] (same
      *  list the gear menu shows) but anchors the popup just under this button. */
     private inner class ProfilesButton(val toolWindow: ToolWindow, val project: Project) :
-        AnAction("Profiles", "Start a session with a profile, or manage profiles", AllIcons.General.ChevronDown) {
+        AnAction("Profiles", "Start a Claude session, a plain terminal, or manage profiles", AllIcons.General.ChevronDown) {
 
         override fun actionPerformed(e: AnActionEvent) {
-            NewSessionPopup.show(project, anchor = e.inputEvent?.component) { profile ->
+            NewSessionPopup.show(project, anchor = e.inputEvent?.component) { choice ->
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater
                     val dir = project.basePath ?: System.getProperty("user.home")
-                    val spec = profile?.let {
-                        SessionLauncher.launch(it, dir, ProfileService.getInstance().state.injectBridgeByDefault)
+                    val spec = when (choice) {
+                        NewSessionChoice.PlainTerminal -> SessionLauncher.plainShell(dir)
+                        is NewSessionChoice.ProfileSession ->
+                            SessionLauncher.launch(choice.profile, dir, ProfileService.getInstance().state.injectBridgeByDefault)
                     }
                     runCatching { createTerminalContent(toolWindow, project, spec) }
                 }

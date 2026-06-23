@@ -28,6 +28,16 @@ object SessionLauncher {
     private val jsonFmt = Json { prettyPrint = true }
     private val log = com.intellij.openapi.diagnostic.logger<SessionLauncher>()
 
+    /** A plain interactive login shell — no Claude, no bridge, no status effects. Used for the "+" new-tab /
+     *  first-tab / reopen paths so a quick terminal matches the universal "new terminal = shell" convention
+     *  (a Claude session is launched deliberately, via the Profiles button with a profile). */
+    fun plainShell(workDir: String): LaunchSpec {
+        val shell = resolveHostShell()
+        val command = if (CCGlyphSettings.isWindows) arrayOf(shell, "-NoLogo")
+                      else arrayOf(shell, "--login")
+        return LaunchSpec(command = command, env = emptyMap(), cwd = workDir, icon = "shell", tabTitle = "")
+    }
+
     fun launch(profile: Profile, projectDir: String, injectBridge: Boolean): LaunchSpec {
         val sessionId = UUID.randomUUID().toString()
         val sessionStateDir = File(BridgeSupport.stateRoot, sessionId).apply { mkdirs() }
@@ -69,7 +79,7 @@ object SessionLauncher {
         val shell = resolveHostShell()
         val claudeCmd = (if (isWin) "claude " else "exec claude ") +
             claudeArgs.joinToString(" ") { if (isWin) shellQuoteWin(it) else shellQuote(it) }
-        val script = if (profile.updateBeforeStart) "claude update && $claudeCmd" else claudeCmd
+        val script = if (CCGlyphSettings.getInstance().state.updateClaudeBeforeStart) "claude update && $claudeCmd" else claudeCmd
         val command = if (isWin) arrayOf(shell, "-NoLogo", "-Command", script)
                       else arrayOf(shell, "-l", "-c", script)
 

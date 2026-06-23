@@ -10,31 +10,53 @@ import com.intellij.ui.awt.RelativePoint
 import java.awt.Component
 import java.awt.Point
 
-/** Profile picker popup: lists every profile plus a "Manage Profiles…" entry separated by a rule.
- *  [onProfile] receives the chosen profile; "Manage Profiles…" opens the settings page instead.
- *  When [anchor] is given the popup opens just below it (for a header button); otherwise it opens
- *  centred on the focused component. */
+/** What the user picked from the New-Session popup. "Manage Profiles…" is handled internally
+ *  (it opens Settings) and never reaches [NewSessionPopup.show]'s onChoose. */
+sealed interface NewSessionChoice {
+    /** A plain interactive shell — no Claude, no bridge, no status effects. */
+    data object PlainTerminal : NewSessionChoice
+    /** Start a Claude Code session with this profile. */
+    data class ProfileSession(val profile: Profile) : NewSessionChoice
+}
+
+/** New-Session popup, laid out as sections separated by rules:
+ *    1. Plain terminal   — a quick non-Claude shell
+ *    2. <profiles>       — Claude sessions, one per profile
+ *    3. Manage Profiles… — opens Settings (footer)
+ *
+ *  [onChoose] receives the selection (a plain terminal or a profile); "Manage Profiles…" opens the
+ *  settings page instead. When [anchor] is given the popup opens just below it (for a header button);
+ *  otherwise it opens centred on the focused component. */
 object NewSessionPopup {
 
+    private const val PLAIN = "__plain__"
+    private const val PLAIN_LABEL = "Plain terminal"
     private const val MANAGE = "__manage__"
     private const val MANAGE_LABEL = "Manage Profiles…"
 
-    fun show(project: Project, anchor: Component? = null, onProfile: (Profile?) -> Unit) {
+    fun show(project: Project, anchor: Component? = null, onChoose: (NewSessionChoice) -> Unit) {
         val rows = mutableListOf<String>()
         val keyForRow = mutableMapOf<String, String>()
         fun row(text: String, key: String) { rows.add(text); keyForRow[text] = key }
 
-        for (p in ProfileService.getInstance().profiles()) {
-            row("${p.name.ifBlank { "Profile" }}   —   ${describe(p)}", p.id)
+        // Section 1 — quick terminal (a non-Claude shell).
+        row(PLAIN_LABEL, PLAIN)
+        // Section 2 — profiles (Claude sessions). Remember the first profile's row text so we can draw a
+        // rule above it (separating it from the Plain-terminal section).
+        val profiles = ProfileService.getInstance().profiles()
+        val firstProfileText: String? = profiles.firstOrNull()?.let { p ->
+            labelFor(p).also { row(it, p.id) }
         }
+        for (p in profiles.drop(1)) row(labelFor(p), p.id)
+        // Footer — manage.
         row(MANAGE_LABEL, MANAGE)
 
         val step = object : BaseListPopupStep<String>("New Session", rows) {
             override fun getTextFor(value: String) = value
             override fun isSpeedSearchEnabled() = true
-            // A rule above "Manage Profiles…" so it reads as a distinct footer action, not another profile.
+            // Rules between sections: above the first profile (Terminal ↔ Profiles) and above Manage (footer).
             override fun getSeparatorAbove(value: String): ListSeparator? =
-                if (value == MANAGE_LABEL) ListSeparator() else null
+                if (value == firstProfileText || value == MANAGE_LABEL) ListSeparator() else null
             override fun onChosen(selectedValue: String?, finalChoice: Boolean): PopupStep<*>? {
                 val key = selectedValue?.let { keyForRow[it] } ?: return PopupStep.FINAL_CHOICE
                 when (key) {
@@ -44,9 +66,10 @@ object NewSessionPopup {
                         ShowSettingsUtil.getInstance()
                             .showSettingsDialog(project, com.workspect.plugin.ccglyph.CCGlyphSettingsConfigurable::class.java)
                     }
+                    PLAIN -> onChoose(NewSessionChoice.PlainTerminal)
                     else -> ProfileService.getInstance().byId(key)?.let {
                         ProfileService.getInstance().setLastUsed(it.id)
-                        onProfile(it)
+                        onChoose(NewSessionChoice.ProfileSession(it))
                     }
                 }
                 return PopupStep.FINAL_CHOICE
@@ -59,6 +82,9 @@ object NewSessionPopup {
             popup.showInFocusCenter()
         }
     }
+
+    private fun labelFor(p: Profile): String =
+        "${p.name.ifBlank { "Profile" }}   —   ${describe(p)}"
 
     private fun describe(p: Profile): String = buildString {
         if (p.model.isNotBlank()) append(p.model).append(" · ")

@@ -23,6 +23,9 @@ class CCGlyphSettings : PersistentStateComponent<CCGlyphSettings.State> {
         var shellPath: String = defaultShell(),          // default: the user's login shell ($SHELL)
         var scrollback: Int = 10000,
         var cursorStyle: String = "block",
+        var plusOpensPlainShell: Boolean = false,   // the "+" button (and reopen/new-tab) open a plain shell
+                                                    //   instead of a Claude session. The first tab is always Claude.
+        var updateClaudeBeforeStart: Boolean = false,   // run `claude update` once before each session starts
         // --- Status chip & effects (global, apply to every profile/session) ---
         var beamEnabled: Boolean = true,            // the gradient beam across the top of the terminal
         var tabColorEnabled: Boolean = true,        // the tool-window tab colour blink (Swing TabBlinker)

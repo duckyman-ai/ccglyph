@@ -42,6 +42,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var shellCombo: ComboBox<String>
     private lateinit var scrollbackSpinner: JSpinner
     private lateinit var cursorCombo: ComboBox<String>
+    private lateinit var plusModeCombo: ComboBox<String>
     // Status chip & effects (global — apply to every profile/session, see CCGlyphSettings.State).
     private lateinit var beamCb: JCheckBox
     private lateinit var tabCb: JCheckBox
@@ -50,6 +51,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var chipCostCb: JCheckBox
     private lateinit var chipCtxCb: JCheckBox
     private lateinit var dismissCb: JCheckBox
+    private lateinit var updateCb: JCheckBox
 
     override fun getId(): String = "ccglyph.settings"
     override fun getDisplayName(): String = "Claude Code Glyph"
@@ -83,6 +85,10 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         scrollbackSpinner = JSpinner(SpinnerNumberModel(s.scrollback, 0, 1_000_000, 1000))
         cursorCombo = ComboBox(arrayOf("block", "underline", "bar")).apply {
             selectedItem = s.cursorStyle
+        }
+        // What the "+" button opens (also reopen / in-tab new-tab). The first tab is always a Claude session.
+        plusModeCombo = ComboBox(arrayOf("Claude session", "Plain terminal")).apply {
+            selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
         }
         // Shell is an editable dropdown populated with common shells that are actually executable on this
         // system, plus the IDE's own terminal shell setting so it's always selectable.
@@ -121,6 +127,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipCostCb = JCheckBox("Cost (USD)", s.chipShowCost)
         chipCtxCb = JCheckBox("Context %", s.chipShowContext)
         dismissCb = JCheckBox("Clear the waiting effect when I start typing", s.dismissWaitingOnInput)
+        updateCb = JCheckBox("Update Claude Code before starting a session", s.updateClaudeBeforeStart)
 
         // UI DSL panel — the IntelliJ-native settings layout. Its first row sits flush at the top of the
         // settings content area (no leading inset), matching every other IDE settings page. Components are
@@ -133,11 +140,14 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             row("Shell:") { cell(shellCombo); cell(browseButton) }
             row("Scrollback (lines):") { cell(scrollbackSpinner) }
             row("Cursor style:") { cell(cursorCombo) }
+            row("New tab (+) opens:") { cell(plusModeCombo) }
             section("Status & effects")
             row("Effects:") { cell(beamCb); cell(tabCb) }
             row { cell(chipCb) }
             row("Show in chip:") { cell(chipModelCb); cell(chipCostCb); cell(chipCtxCb) }
             row { cell(dismissCb) }
+            section("Claude Code")
+            row { cell(updateCb) }
             section("Claude Code Profiles")
             row { cell(profiles.createComponent()).resizableColumn() }
         }
@@ -170,13 +180,15 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             (shellCombo.selectedItem as? String) != s.shellPath ||
             scrollbackSpinner.value != s.scrollback ||
             cursorCombo.selectedItem != s.cursorStyle ||
+            (plusModeCombo.selectedItem == "Plain terminal") != s.plusOpensPlainShell ||
             beamCb.isSelected != s.beamEnabled ||
             tabCb.isSelected != s.tabColorEnabled ||
             chipCb.isSelected != s.showStatusChip ||
             chipModelCb.isSelected != s.chipShowModel ||
             chipCostCb.isSelected != s.chipShowCost ||
             chipCtxCb.isSelected != s.chipShowContext ||
-            dismissCb.isSelected != s.dismissWaitingOnInput
+            dismissCb.isSelected != s.dismissWaitingOnInput ||
+            updateCb.isSelected != s.updateClaudeBeforeStart
     }
 
     override fun apply() {
@@ -196,6 +208,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             ?: CCGlyphSettings.defaultShell()
         s.scrollback = (scrollbackSpinner.value as Number).toInt()
         s.cursorStyle = cursorCombo.selectedItem as String
+        s.plusOpensPlainShell = plusModeCombo.selectedItem == "Plain terminal"
         s.beamEnabled = beamCb.isSelected
         s.tabColorEnabled = tabCb.isSelected
         s.showStatusChip = chipCb.isSelected
@@ -203,6 +216,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         s.chipShowCost = chipCostCb.isSelected
         s.chipShowContext = chipCtxCb.isSelected
         s.dismissWaitingOnInput = dismissCb.isSelected
+        s.updateClaudeBeforeStart = updateCb.isSelected
         // Live-reload: push new config to all open terminal tabs immediately (no restart needed).
         settings.notifySettingsChanged()
     }
@@ -217,6 +231,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         shellCombo.selectedItem = s.shellPath
         scrollbackSpinner.value = s.scrollback
         cursorCombo.selectedItem = s.cursorStyle
+        plusModeCombo.selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
         beamCb.isSelected = s.beamEnabled
         tabCb.isSelected = s.tabColorEnabled
         chipCb.isSelected = s.showStatusChip
@@ -224,6 +239,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipCostCb.isSelected = s.chipShowCost
         chipCtxCb.isSelected = s.chipShowContext
         dismissCb.isSelected = s.dismissWaitingOnInput
+        updateCb.isSelected = s.updateClaudeBeforeStart
     }
 
     private fun round1(v: Double): Double = (v * 10.0).roundToInt() / 10.0
