@@ -59,7 +59,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     // --- process detection (output-triggered, used to switch the tab icon + title) ---
     // When shell output flows in → check the process tree for known tools (DETECT_PRIORITY — first match wins);
     // only invoke the callback on a state change. CCGlyphContent wires the callback: the icon comes from
-    // iconFor() (null = idle shell → default terminal icon) and the title from the app's OSC title (onTerminalTitle).
+    // iconFor() (null = idle → the session's creation icon) and the title from the app's OSC title (onTerminalTitle).
     @Volatile private var lastCheckMs: Long = 0L
     @Volatile private var currentProcess: String? = null
     var onProcessChange: ((String?) -> Unit)? = null

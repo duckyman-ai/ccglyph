@@ -75,7 +75,9 @@ internal object CCGlyphContent {
         val title = spec.tabTitle.takeIf { it.isNotBlank() } ?: fallbackTitle
         val content = ContentFactory.getInstance().createContent(panel.component, title, false)
         // Initial tab icon: the profile's icon (or claude) for profile sessions, else the brand icon.
-        content.icon = iconFor(spec.icon) ?: TERMINAL_ICON
+        // Captured as the creation/idle icon — onProcessChange restores it when the running tool exits.
+        val baseIcon = iconFor(spec.icon) ?: TERMINAL_ICON
+        content.icon = baseIcon
         // ⚠️ Tool window content tabs do not show icons by default — BaseLabel.updateTextAndIcon
         // checks SHOW_CONTENT_ICON first, otherwise it discards the icon via setIcon(null) → must opt in with this flag
         content.putUserData(ToolWindow.SHOW_CONTENT_ICON, java.lang.Boolean.TRUE)
@@ -84,15 +86,16 @@ internal object CCGlyphContent {
         // Status-driven tab blink (the "blinking / alternating colours" effect) for bridge-backed sessions.
         val blinker = TabBlinker(content)
         panel.onStatus = { state -> blinker.setState(state) }
-        // The tab's ICON follows the running process (claude → coral icon, etc.). The TITLE is driven by the app's
-        // OSC escape (onTerminalTitle below) so it shows the app's own title (e.g. Claude Code's session title) like
-        // the built-in terminal; when a process EXITS we reset the title to the session name (an app that emits no
-        // OSC title keeps the session name throughout). Fires from the reader thread → marshal to the EDT.
+        // The tab's ICON follows the running process — vim/gradle/git/… swap to that tool's icon, falling back to
+        // the session's [baseIcon] when idle (or for an unrecognised tool). AI assistants are detected first
+        // (DETECT_PRIORITY), so a Claude session stays on its claude icon even while it shells out to node. The
+        // TITLE is driven by the app's OSC escape (onTerminalTitle below); on process exit we also reset the title
+        // to the session name. Fires from the reader thread → marshal to the EDT.
         panel.onProcessChange = { processName ->
             ApplicationManager.getApplication().invokeLater {
                 if (project.isDisposed || panel.isDisposed) return@invokeLater
                 runCatching {
-                    // Icon stays as the profile/claude icon set at creation — no auto-detect swapping.
+                    content.icon = if (processName != null) iconFor(processName) ?: baseIcon else baseIcon
                     if (processName == null) content.displayName = title   // process exited → title back to session name
                 }
             }
