@@ -187,13 +187,15 @@ internal object CCGlyphContent {
         }
 
         private fun colors(): Pair<java.awt.Color, java.awt.Color>? = when (state) {
+            // Vivid shades (matching the gradient beam) — the old dark tones (#4c1d95/#1e3a8a/#b45309) were
+            // invisible on a dark tab background; these read clearly in dark AND light mode.
             com.workspect.plugin.ccglyph.status.ClaudeState.THINKING ->
-                java.awt.Color(0x4c, 0x1d, 0x95) to java.awt.Color(0x1e, 0x3a, 0x8a)   // purple ↔ blue
+                java.awt.Color(0x7c, 0x3a, 0xed) to java.awt.Color(0x25, 0x63, 0xeb)   // vivid purple ↔ blue
             com.workspect.plugin.ccglyph.status.ClaudeState.TOOL_RUNNING ->
-                java.awt.Color(0x1e, 0x3a, 0x8a) to java.awt.Color(0x0e, 0x74, 0x9e)   // blue ↔ cyan
+                java.awt.Color(0x25, 0x63, 0xeb) to java.awt.Color(0x06, 0xb6, 0xd4)   // vivid blue ↔ cyan
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_PERMISSION,
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_INPUT ->
-                java.awt.Color(0xb4, 0x53, 0x09) to java.awt.Color(0x42, 0x3a, 0x06)   // amber blink
+                java.awt.Color(0xf5, 0x9e, 0x0b) to java.awt.Color(0xfb, 0xbf, 0x24)   // vivid amber blink
             else -> null
         }
 
