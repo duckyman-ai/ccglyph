@@ -27,8 +27,6 @@ data class Profile(
     var configDir: String = "",
     /** Auto-append `--resume` for the last session in this profile's config dir. */
     var resumeLast: Boolean = false,
-    /** Visual effect theme key (default | subtle | extra). */
-    var effectTheme: String = "default",
     /** Process-icon name for the tab (claude/codex/...). Blank = auto-detect. */
     var icon: String = "",
 )

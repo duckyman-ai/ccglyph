@@ -28,7 +28,6 @@ class ProfileEditorDialog(
 ) : DialogWrapper(project) {
 
     private val name = JTextField(profile.name)
-    private val effectTheme = ComboBox(arrayOf("default", "subtle", "extra")).apply { selectedItem = profile.effectTheme }
     private val icon = JTextField(profile.icon)
     private val model = JTextField(profile.model)
     private val permissionMode = ComboBox(arrayOf("default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions")).apply {
@@ -89,8 +88,6 @@ class ProfileEditorDialog(
         val top = FormBuilder.createFormBuilder()
             .addLabeledComponent("Name", name, 1, false)
             .addComponent(TitledSeparator("Appearance"))
-            .addLabeledComponent("Effect theme", effectTheme, 1, false)
-            .addTooltip("Intensity of the status beam / tab effects (default · subtle · extra).")
             .addLabeledComponent("Tab icon", icon, 1, false)
             .addTooltip("Icon name: claude / codex / gemini / vim … blank = auto.")
             .addComponent(TitledSeparator("Claude Code"))
@@ -154,7 +151,6 @@ class ProfileEditorDialog(
         if (envTable.isEditing) envTable.cellEditor?.stopCellEditing()
         if (name.text.isNullOrBlank()) { name.requestFocusInWindow(); return }
         profile.name = ProfileService.getInstance().uniqueName(name.text.trim(), profile.id)
-        profile.effectTheme = (effectTheme.selectedItem as? String) ?: "default"
         profile.icon = icon.text.trim()
         profile.model = model.text.trim()
         profile.permissionMode = (permissionMode.selectedItem as? String).orEmpty()
