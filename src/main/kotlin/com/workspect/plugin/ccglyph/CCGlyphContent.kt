@@ -166,6 +166,13 @@ internal object CCGlyphContent {
 
         fun setState(newState: com.workspect.plugin.ccglyph.status.ClaudeState) {
             state = newState
+            // Global "tab colour" toggle (Tools → CCGlyph). When off, never colour the tab. Independent from
+            // the gradient beam (which is gated in terminal.html via window.TG_CONFIG.ccg.beam).
+            if (!com.workspect.plugin.ccglyph.CCGlyphSettings.getInstance().state.tabColorEnabled) {
+                if (timer.isRunning) timer.stop()
+                content.setTabColor(null)
+                return
+            }
             if (newState.isBusy || newState.isWaiting) {
                 if (!timer.isRunning) { on = false; timer.start() }
             } else {

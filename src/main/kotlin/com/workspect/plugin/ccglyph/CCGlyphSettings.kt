@@ -23,6 +23,15 @@ class CCGlyphSettings : PersistentStateComponent<CCGlyphSettings.State> {
         var shellPath: String = defaultShell(),          // default: the user's login shell ($SHELL)
         var scrollback: Int = 10000,
         var cursorStyle: String = "block",
+        // --- Status chip & effects (global, apply to every profile/session) ---
+        var beamEnabled: Boolean = true,            // the gradient beam across the top of the terminal
+        var tabColorEnabled: Boolean = true,        // the tool-window tab colour blink (Swing TabBlinker)
+        var showStatusChip: Boolean = true,         // the ● model/ctx pill, top-right of the terminal
+        var chipShowModel: Boolean = true,
+        var chipShowCost: Boolean = false,          // OFF by default — total_cost_usd is Claude Code's Anthropic-priced
+                                                    //   estimate, wrong when routing to a non-Anthropic model
+        var chipShowContext: Boolean = true,
+        var dismissWaitingOnInput: Boolean = true,  // clear the WAITING effect as soon as the user types
     )
 
     private var myState = State()

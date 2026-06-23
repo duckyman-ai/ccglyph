@@ -79,9 +79,26 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     private var statusController: StatusController? = null
     @Volatile private var warnedHighCtx = false
     @Volatile private var warnedRate = false
+    /** Last Claude state seen from the bridge — used to re-drive the tab blinker immediately on a settings
+     *  toggle (StatusController.onUpdate is change-gated, so without this the tab colour wouldn't update
+     *  until the next real state change). Null on non-bridged sessions. */
+    @Volatile private var lastStatusState: ClaudeState? = null
+    /** Last status snapshot (model/ctx) — kept so an optimistic IDLE flip (typing during WAITING) can keep
+     *  the chip's model/context content instead of blanking it. */
+    @Volatile private var lastSnapshot: StatusSnapshot? = null
+    /** Optimistic-clear latch: once the user starts typing during a WAITING state we push IDLE locally and
+     *  suppress WAITING re-application (from snap-only updates) until a non-WAITING state arrives, which
+     *  clears this. See inputQuery + StatusController.onUpdate. */
+    @Volatile private var waitingDismissed = false
 
     // --- live-reload: settings / theme changes push to xterm immediately ---
-    private val settingsListener = Runnable { pushConfigToJs() }
+    // On a Settings change also re-apply the current status, so a chip/beam/tab toggle takes effect at once
+    // (pushConfigToJs → tgReloadConfig re-renders the beam/chip in JS; re-invoking onStatus re-evaluates the
+    // Swing tab colour via TabBlinker, which itself re-reads the tabColorEnabled flag).
+    private val settingsListener = Runnable {
+        pushConfigToJs()
+        lastStatusState?.let { onStatus?.invoke(it) }
+    }
     val isDisposed: Boolean get() = disposed
 
     // JS → Kotlin: receive keyboard input from xterm.js.
@@ -90,6 +107,21 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     private val inputQuery = JBCefJSQuery.create(browser as JBCefBrowserBase).apply {
         addHandler { input ->
             session.write(input)
+            // Optimistic clear: the WAITING effect is an attention signal, so once the user starts responding
+            // (any input keystroke / paste) flip to IDLE locally instead of waiting for the UserPromptSubmit /
+            // permission-decision hook. Suppressed again on the next real (non-WAITING) state — see onUpdate.
+            if (input.isNotEmpty() && !waitingDismissed && lastStatusState?.isWaiting == true &&
+                CCGlyphSettings.getInstance().state.dismissWaitingOnInput
+            ) {
+                waitingDismissed = true
+                val snap = lastSnapshot
+                ApplicationManager.getApplication().invokeLater {
+                    if (!disposed) {
+                        applyStatusToJs(ClaudeState.IDLE, snap)
+                        onStatus?.invoke(ClaudeState.IDLE)
+                    }
+                }
+            }
             null
         }
     }
@@ -239,7 +271,13 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         if (spec?.hasBridge == true) {
             statusController = StatusController(spec.sessionId, spec.stateDir).apply {
                 onUpdate = { state, snap ->
-                    if (!disposed) {
+                    // While the WAITING effect is optimistically dismissed (user started typing), ignore
+                    // WAITING re-fires (e.g. a snap-only update) — stay cleared until a real non-WAITING
+                    // state arrives, which also releases the latch.
+                    if (!disposed && !(state.isWaiting && waitingDismissed)) {
+                        if (!state.isWaiting) waitingDismissed = false
+                        lastStatusState = state
+                        if (snap != null) lastSnapshot = snap
                         applyStatusToJs(state, snap)
                         onStatus?.invoke(state)
                         snap?.let { checkThresholds(it) }
@@ -615,7 +653,11 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             "\"cursorStyle\":\"${s.cursorStyle}\"," +
             "\"allowTransparency\":false," +
             "\"allowProposedApi\":true," +   // unlocks registerDecoration() — the find active-match highlight (yellow bg + black text)
-            "\"theme\":$themeJson" +
+            "\"theme\":$themeJson," +
+            // Status beam + chip flags (global). terminal.html reads window.TG_CONFIG.ccg to gate the
+            // beam + chip (and re-renders on live-reload via tgReloadConfig). The tab-colour effect is
+            // separate (Swing TabBlinker, gated in Kotlin) so it isn't part of this JS config. Cost defaults off.
+            "\"ccg\":{\"beam\":${s.beamEnabled},\"showChip\":${s.showStatusChip},\"model\":${s.chipShowModel},\"cost\":${s.chipShowCost},\"ctx\":${s.chipShowContext}}" +
             "}"
     }
 

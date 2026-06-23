@@ -11,10 +11,11 @@
         <ul>
         <li><b>Profiles</b> &mdash; start each session from a chosen <code>settings.json</code> with model, permission-mode,
             env and isolated config-dir overrides. Pick from the New-Session popup on the <b>+</b> button.</li>
-        <li><b>Live status &amp; effects</b> &mdash; an animated gradient beam, a colour-changing tab and a glass status chip
-            reflect whether Claude is thinking, running a tool, or waiting for permission. Model, cost and context-window
-            usage update live (via injected hooks &amp; statusLine).</li>
-        <li><b>Cost &amp; context dashboard</b> &mdash; per-session cost, a context-window fuel gauge, and rate-limit proximity warnings.</li>
+        <li><b>Live status &amp; effects</b> &mdash; a gradient beam, a colour-changing tab and a glass status chip
+            reflect whether Claude is thinking, running a tool, or waiting for permission. The chip shows model and
+            context-window usage live (via injected hooks &amp; statusLine); both the chip contents and the effects are
+            fully configurable in Settings (cost is opt-in).</li>
+        <li><b>Context dashboard</b> &mdash; a context-window fuel gauge and rate-limit proximity warnings (per-session cost is optional).</li>
         <li>Clean rendering, <b>Find</b> (Cmd/Ctrl+F), copy/paste, native side-by-side split, tab icons/titles that follow
             the running process, and IDE-theme following.</li>
         </ul>
@@ -24,8 +25,8 @@
     <change-notes><![CDATA[
         <b>1.0.0</b> &mdash; CCGlyph (fork of TermGlyph).<br/>
         &bull; Profiles: launch Claude Code from a chosen settings.json with model/permission/env/config-dir overrides + a New-Session picker.<br/>
-        &bull; Live status bridge: gradient beam + colour tab + status chip driven by hooks &amp; statusLine (thinking / tool / waiting / idle), with live model, cost and context-window %.<br/>
-        &bull; Cost &amp; context dashboard with rate-limit warnings.<br/>
+        &bull; Live status bridge: gradient beam + colour tab + status chip driven by hooks &amp; statusLine (thinking / tool / waiting / idle), with live model and context-window %. The chip contents and the effects are configurable in Settings; per-session cost is opt-in.<br/>
+        &bull; Context dashboard with rate-limit warnings.<br/>
         &bull; Clean Claude Code rendering (xterm.js Unicode 11), multi-tab + native side-by-side split, find, copy/paste, process-aware tab icons, IDE-theme following.
     ]]></change-notes>
 

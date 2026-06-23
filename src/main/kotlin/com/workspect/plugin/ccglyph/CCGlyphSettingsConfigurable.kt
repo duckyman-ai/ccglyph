@@ -19,6 +19,7 @@ import java.awt.GraphicsEnvironment
 import java.io.File
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JSpinner
@@ -41,6 +42,14 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var shellCombo: ComboBox<String>
     private lateinit var scrollbackSpinner: JSpinner
     private lateinit var cursorCombo: ComboBox<String>
+    // Status chip & effects (global — apply to every profile/session, see CCGlyphSettings.State).
+    private lateinit var beamCb: JCheckBox
+    private lateinit var tabCb: JCheckBox
+    private lateinit var chipCb: JCheckBox
+    private lateinit var chipModelCb: JCheckBox
+    private lateinit var chipCostCb: JCheckBox
+    private lateinit var chipCtxCb: JCheckBox
+    private lateinit var dismissCb: JCheckBox
 
     override fun getId(): String = "ccglyph.settings"
     override fun getDisplayName(): String = "Claude Code Glyph"
@@ -103,6 +112,16 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             }
         }
 
+        // Status chip & effects checkboxes (global). These are the only "behaviour" toggles here — the rest
+        // of the page is terminal appearance + profiles. Beam and tab colour are independent toggles.
+        beamCb = JCheckBox("Gradient beam", s.beamEnabled)
+        tabCb = JCheckBox("Tab colour", s.tabColorEnabled)
+        chipCb = JCheckBox("Show status chip", s.showStatusChip)
+        chipModelCb = JCheckBox("Model", s.chipShowModel)
+        chipCostCb = JCheckBox("Cost (USD)", s.chipShowCost)
+        chipCtxCb = JCheckBox("Context %", s.chipShowContext)
+        dismissCb = JCheckBox("Clear the waiting effect when I start typing", s.dismissWaitingOnInput)
+
         // UI DSL panel — the IntelliJ-native settings layout. Its first row sits flush at the top of the
         // settings content area (no leading inset), matching every other IDE settings page. Components are
         // added as inline cells so UI DSL aligns their baselines and the label column stays consistent.
@@ -114,6 +133,11 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             row("Shell:") { cell(shellCombo); cell(browseButton) }
             row("Scrollback (lines):") { cell(scrollbackSpinner) }
             row("Cursor style:") { cell(cursorCombo) }
+            section("Status & effects")
+            row("Effects:") { cell(beamCb); cell(tabCb) }
+            row { cell(chipCb) }
+            row("Show in chip:") { cell(chipModelCb); cell(chipCostCb); cell(chipCtxCb) }
+            row { cell(dismissCb) }
             section("Claude Code Profiles")
             row { cell(profiles.createComponent()).resizableColumn() }
         }
@@ -145,7 +169,14 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             round1((letterSpacingSpinner.value as Number).toDouble()) != round1(s.letterSpacing) ||
             (shellCombo.selectedItem as? String) != s.shellPath ||
             scrollbackSpinner.value != s.scrollback ||
-            cursorCombo.selectedItem != s.cursorStyle
+            cursorCombo.selectedItem != s.cursorStyle ||
+            beamCb.isSelected != s.beamEnabled ||
+            tabCb.isSelected != s.tabColorEnabled ||
+            chipCb.isSelected != s.showStatusChip ||
+            chipModelCb.isSelected != s.chipShowModel ||
+            chipCostCb.isSelected != s.chipShowCost ||
+            chipCtxCb.isSelected != s.chipShowContext ||
+            dismissCb.isSelected != s.dismissWaitingOnInput
     }
 
     override fun apply() {
@@ -165,6 +196,13 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             ?: CCGlyphSettings.defaultShell()
         s.scrollback = (scrollbackSpinner.value as Number).toInt()
         s.cursorStyle = cursorCombo.selectedItem as String
+        s.beamEnabled = beamCb.isSelected
+        s.tabColorEnabled = tabCb.isSelected
+        s.showStatusChip = chipCb.isSelected
+        s.chipShowModel = chipModelCb.isSelected
+        s.chipShowCost = chipCostCb.isSelected
+        s.chipShowContext = chipCtxCb.isSelected
+        s.dismissWaitingOnInput = dismissCb.isSelected
         // Live-reload: push new config to all open terminal tabs immediately (no restart needed).
         settings.notifySettingsChanged()
     }
@@ -179,6 +217,13 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         shellCombo.selectedItem = s.shellPath
         scrollbackSpinner.value = s.scrollback
         cursorCombo.selectedItem = s.cursorStyle
+        beamCb.isSelected = s.beamEnabled
+        tabCb.isSelected = s.tabColorEnabled
+        chipCb.isSelected = s.showStatusChip
+        chipModelCb.isSelected = s.chipShowModel
+        chipCostCb.isSelected = s.chipShowCost
+        chipCtxCb.isSelected = s.chipShowContext
+        dismissCb.isSelected = s.dismissWaitingOnInput
     }
 
     private fun round1(v: Double): Double = (v * 10.0).roundToInt() / 10.0

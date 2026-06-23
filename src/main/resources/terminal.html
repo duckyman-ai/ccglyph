@@ -437,6 +437,8 @@ window.tgReloadConfig = (json) => {
         // NEW theme's background (without this, the find-bar colours stay derived from the OLD background after a
         // dark↔light scheme switch — that was the "find panel doesn't recolour on theme change" bug).
         window.TG_CONFIG = cfg;
+        // Re-render the status beam/chip from the refreshed ccg flags (live Settings toggle).
+        try { window.ccgReload && window.ccgReload(); } catch(e) {}
         try { applyThemeColors(); } catch(e) {}
         try { fitAddon.fit(); } catch(e) {}
         term.refresh(0, term.rows - 1);
@@ -476,6 +478,10 @@ try {
 } catch (e) {}
 
 // ===== CCGlyph status effects: gradient beam + live status chip =====
+// Flags come from window.TG_CONFIG.ccg (pushed by Kotlin buildConfigJson): {beam, showChip, model, cost, ctx}.
+// The beam is gated by `beam`; the chip by `showChip` + the per-field flags. We remember the last state +
+// snapshot so ccgReload() can re-render immediately on a live Settings toggle (tgReloadConfig calls it),
+// without waiting for the next StatusController update (which is change-gated, not periodic).
 (function () {
   try {
     var beam = document.createElement('div'); beam.id = 'ccg-beam'; document.body.appendChild(beam);
@@ -484,23 +490,50 @@ try {
     document.body.appendChild(chip);
     var mEl = chip.querySelector('.ccg-model'), cEl = chip.querySelector('.ccg-cost'), xEl = chip.querySelector('.ccg-ctx');
     var cls = { THINKING:'think', TOOL_RUNNING:'tool', WAITING_PERMISSION:'wait', WAITING_INPUT:'wait', IDLE:'idle', ERROR:'wait' };
-    window.ccgSetState = function (state, highCtx) {
+
+    function cfg() {
+      var c = (window.TG_CONFIG && window.TG_CONFIG.ccg) || {};
+      // Booleans default ON except cost (off) — matches CCGlyphSettings.State defaults.
+      // `beam` is the gradient beam only; the tab-colour effect is separate (Swing, gated in Kotlin).
+      return { beam: c.beam !== false, showChip: c.showChip !== false, model: c.model !== false, cost: c.cost === true, ctx: c.ctx !== false };
+    }
+    var lastState = 'IDLE', lastHigh = false, lastSnap = null;
+
+    function renderBeam() {
       beam.className = '';
-      chip.className = '';
-      chip.classList.add(cls[state] || 'idle');
+      if (!cfg().beam) return;                // beam off → stays hidden (no classes added)
+      var state = lastState;
       if (state === 'THINKING' || state === 'TOOL_RUNNING') beam.classList.add('on');
       else if (state === 'WAITING_PERMISSION' || state === 'WAITING_INPUT' || state === 'ERROR') beam.classList.add('wait');
-      if (highCtx) beam.classList.add('high');
+      if (lastHigh) beam.classList.add('high');
+    }
+    function renderChip() {
+      var c = cfg(), s = lastSnap || {};
+      mEl.textContent = (c.model && s.model) ? s.model : '';
+      cEl.textContent = (c.cost && s.costUsd !== undefined && s.costUsd > 0) ? ('$' + Number(s.costUsd).toFixed(3)) : '';
+      xEl.textContent = (c.ctx && s.contextPct !== undefined) ? ('ctx ' + s.contextPct + '%') : '';
+      // The dot always tracks the current state; the pill itself is shown only when the chip is on AND at
+      // least one enabled field has content (so all-off, or no status yet, hides it instead of a bare dot).
+      chip.className = '';
+      chip.classList.add(cls[lastState] || 'idle');
+      var has = mEl.textContent || cEl.textContent || xEl.textContent;
+      chip.style.display = (c.showChip && has) ? 'flex' : 'none';
+    }
+    function ccgRender() { renderBeam(); renderChip(); }
+
+    window.ccgSetState = function (state, highCtx) {
+      lastState = state || 'IDLE'; lastHigh = !!highCtx;
+      ccgRender();
     };
     window.ccgUpdateStatus = function (s) {
       try {
         if (typeof s === 'string') s = JSON.parse(s);
-        if (s && s.model) mEl.textContent = s.model;
-        if (s && s.costUsd !== undefined && s.costUsd > 0) cEl.textContent = '$' + Number(s.costUsd).toFixed(3);
-        if (s && s.contextPct !== undefined) xEl.textContent = 'ctx ' + s.contextPct + '%';
-        if (s && (s.model || s.contextPct !== undefined)) chip.style.display = 'flex';
+        lastSnap = s || null;
+        ccgRender();
       } catch (e) {}
     };
+    // Called by tgReloadConfig after a Settings/theme change — refresh flags + re-render from remembered state.
+    window.ccgReload = ccgRender;
   } catch (e) {}
 })();
 </script>
