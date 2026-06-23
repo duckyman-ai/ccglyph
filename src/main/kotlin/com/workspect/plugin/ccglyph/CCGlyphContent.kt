@@ -23,6 +23,10 @@ internal object CCGlyphContent {
     /** Terminal brand icon (blue→purple gradient, matches the tool-window stripe icon). */
     val TERMINAL_ICON: Icon = IconLoader.getIcon("/icons/ccglyph.svg", CCGlyphContent::class.java)
 
+    /** Generic monochrome terminal icon for plain (non-Claude) shells — theme-aware via currentColor.
+     *  Distinguishes a "Plain terminal" from a Claude session (which keeps the brand/profile icon). */
+    val PLAIN_TERMINAL_ICON: Icon = IconLoader.getIcon("/icons/terminal.svg", CCGlyphContent::class.java)
+
     /** Maps a docked Content → its TerminalBrowserPanel (used by the close-confirmation + repaint listeners). */
     val PANEL_KEY = Key.create<TerminalBrowserPanel>("ccglyph.panel")
 

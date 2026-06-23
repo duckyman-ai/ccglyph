@@ -22,17 +22,17 @@ sealed interface NewSessionChoice {
 }
 
 /** New-Session popup, laid out as sections separated by rules:
- *    1. Plain terminal   — a quick non-Claude shell
+ *    1. Terminal   — a quick non-Claude shell
  *    2. <profiles>       — Claude sessions, one per profile
  *    3. Manage Profiles… — opens Settings (footer)
  *
- *  [onChoose] receives the selection (a plain terminal or a profile); "Manage Profiles…" opens the
+ *  [onChoose] receives the selection (a terminal or a profile); "Manage Profiles…" opens the
  *  settings page instead. When [anchor] is given the popup opens just below it (for a header button);
  *  otherwise it opens centred on the focused component. */
 object NewSessionPopup {
 
     private const val PLAIN = "__plain__"
-    private const val PLAIN_LABEL = "Plain terminal"
+    private const val PLAIN_LABEL = "Terminal"
     private const val MANAGE = "__manage__"
     private const val MANAGE_LABEL = "Manage Profiles…"
 
@@ -56,11 +56,11 @@ object NewSessionPopup {
         val step = object : BaseListPopupStep<String>("New Session", rows) {
             override fun getTextFor(value: String) = value
             override fun isSpeedSearchEnabled() = true
-            // Icon per row: Plain terminal → brand; profiles → their tab icon; Manage → none.
+            // Icon per row: Plain terminal → generic terminal icon; profiles → their tab icon; Manage → none.
             override fun getIconFor(value: String): Icon? {
                 val key = keyForRow[value] ?: return null
                 return when (key) {
-                    PLAIN -> CCGlyphContent.TERMINAL_ICON
+                    PLAIN -> CCGlyphContent.PLAIN_TERMINAL_ICON
                     MANAGE -> null
                     else -> ProfileService.getInstance().byId(key)?.let { CCGlyphContent.profileIcon(it.icon) }
                 }

@@ -116,7 +116,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         // Status chip & effects checkboxes (global). These are the only "behaviour" toggles here — the rest
         // of the page is terminal appearance + profiles. Beam and tab colour are independent toggles.
         beamCb = JCheckBox("Gradient beam", s.beamEnabled)
-        tabCb = JCheckBox("Tab colour", s.tabColorEnabled)
+        tabCb = JCheckBox("Tab color", s.tabColorEnabled)
         chipCb = JCheckBox("Show status chip", s.showStatusChip)
         chipModelCb = JCheckBox("Model", s.chipShowModel)
         chipCostCb = JCheckBox("Cost (USD)", s.chipShowCost)
