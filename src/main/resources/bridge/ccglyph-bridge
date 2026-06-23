@@ -18,8 +18,15 @@ mkdir -p "$SDIR" 2>/dev/null || exit 0
 
 case "$MODE" in
   status)
-    # Atomic snapshot of the latest rich status (model, cost, context %, rate limits).
-    cat > "$SDIR/status.json.tmp" 2>/dev/null && mv -f "$SDIR/status.json.tmp" "$SDIR/status.json" 2>/dev/null
+    # The status JSON arrives on stdin. Capture it once to a temp file so we can BOTH persist it (for the
+    # plugin's chip) AND feed it to the user's own statusLine command (CCGLYPH_USER_STATUSLINE) so their
+    # statusline keeps rendering in the terminal instead of being swallowed. The command travels via env
+    # (set by SessionLauncher) to avoid shell-quoting issues; we run it exactly as Claude would (sh -c).
+    cat > "$SDIR/status.json.tmp" 2>/dev/null
+    mv -f "$SDIR/status.json.tmp" "$SDIR/status.json" 2>/dev/null
+    if [ -n "${CCGLYPH_USER_STATUSLINE:-}" ]; then
+      sh -c "$CCGLYPH_USER_STATUSLINE" < "$SDIR/status.json" 2>/dev/null
+    fi
     ;;
   hook)
     # Append the raw event line; the plugin derives the state machine from hook_event_name.

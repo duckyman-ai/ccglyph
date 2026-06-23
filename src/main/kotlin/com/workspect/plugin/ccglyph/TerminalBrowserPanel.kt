@@ -866,8 +866,10 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             "agy",                           // Google Antigravity
         )
 
-        /** Version of the web assets — bump every time you edit terminal.html/xterm to invalidate the CEF file:// cache. */
-        const val WEB_VERSION = "v21"
+        /** Version of the extracted web + bridge assets. Bump every time you edit terminal.html/xterm OR the
+         *  bridge scripts (ccglyph-bridge / ccglyph-bridge.cmd): both are extracted once into a temp dir keyed
+         *  on this version (with a `.done` marker), so a stale version keeps serving the OLD assets. */
+        const val WEB_VERSION = "v22"
 
         /** Static xterm assets that are extracted once at startup (not per-tab). */
         private val STATIC_ASSETS = listOf(

@@ -11,8 +11,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -89,6 +91,10 @@ object SessionLauncher {
             if (injectBridge) {
                 put("CCGLYPH_SESSION_ID", sessionId)
                 put("CCGLYPH_STATE_DIR", BridgeSupport.stateRoot.absolutePath)
+                // The user's own statusLine command — handed to the bridge via env (not the command line, to
+                // avoid shell-quoting issues) so it can pass it through instead of swallowing it. Their
+                // statusline keeps rendering in the terminal AND the chip still works (same JSON, two views).
+                resolveUserStatusLine(profile, base)?.let { put("CCGLYPH_USER_STATUSLINE", it) }
             }
             if (profile.configDir.isNotBlank()) put("CLAUDE_CONFIG_DIR", expandPath(profile.configDir))
         }
@@ -103,6 +109,28 @@ object SessionLauncher {
             tabTitle = profile.name.ifBlank { "Claude" },
             icon = profile.icon.ifBlank { "claude" },
         )
+    }
+
+    /** The user's own statusLine command (if any), so the bridge can pass it through. Looked up in the
+     *  profile's settings.json first, then the global / isolated-config-dir settings.json. Only `command`-type
+     *  statusLines are passed through. Returns null when the user has none (→ the chip is the only status view). */
+    private fun resolveUserStatusLine(profile: Profile, base: JsonObject): String? {
+        statusLineCommandOf(base)?.let { return it }
+        val cfgDir = profile.configDir.takeIf { it.isNotBlank() }?.let { expandPath(it) }
+            ?: File(System.getProperty("user.home"), ".claude").path
+        runCatching {
+            val text = File(cfgDir, "settings.json").takeIf { it.isFile }?.readText() ?: return@runCatching null
+            statusLineCommandOf(Json.parseToJsonElement(text) as? JsonObject)
+        }.getOrNull()?.let { return it }
+        return null
+    }
+
+    /** Pull `statusLine.command` out of a settings object; null unless it's a usable command-type statusLine. */
+    private fun statusLineCommandOf(obj: JsonObject?): String? {
+        val sl = obj?.get("statusLine") as? JsonObject ?: return null
+        val type = (sl["type"] as? JsonPrimitive)?.contentOrNull
+        if (type != null && type != "command") return null   // only pass command-type statusLines through
+        return (sl["command"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
     }
 
     /** Read the profile's base settings as a JsonObject (empty when no path / unreadable). */
