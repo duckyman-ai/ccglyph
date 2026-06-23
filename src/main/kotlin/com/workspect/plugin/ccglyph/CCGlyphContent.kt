@@ -86,16 +86,17 @@ internal object CCGlyphContent {
         // Status-driven tab blink (the "blinking / alternating colours" effect) for bridge-backed sessions.
         val blinker = TabBlinker(content)
         panel.onStatus = { state -> blinker.setState(state) }
-        // The tab's ICON follows the running process — vim/gradle/git/… swap to that tool's icon, falling back to
-        // the session's [baseIcon] when idle (or for an unrecognised tool). AI assistants are detected first
-        // (DETECT_PRIORITY), so a Claude session stays on its claude icon even while it shells out to node. The
-        // TITLE is driven by the app's OSC escape (onTerminalTitle below); on process exit we also reset the title
-        // to the session name. Fires from the reader thread → marshal to the EDT.
+        // The tab's ICON follows the running process — but ONLY for plain-shell sessions. A Claude (bridge)
+        // session keeps its claude/profile icon: claude is a node app so its process tree is "node" + whatever
+        // tool it runs, neither of which should replace the session's identity. The TITLE is driven by the app's
+        // OSC escape (onTerminalTitle below); on process exit we also reset the title to the session name.
+        // Fires from the reader thread → marshal to the EDT.
         panel.onProcessChange = { processName ->
             ApplicationManager.getApplication().invokeLater {
                 if (project.isDisposed || panel.isDisposed) return@invokeLater
                 runCatching {
-                    content.icon = if (processName != null) iconFor(processName) ?: baseIcon else baseIcon
+                    content.icon = if (spec.hasBridge || processName == null) baseIcon
+                                   else iconFor(processName) ?: baseIcon
                     if (processName == null) content.displayName = title   // process exited → title back to session name
                 }
             }
