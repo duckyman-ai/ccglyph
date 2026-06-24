@@ -28,31 +28,11 @@
   }
   .xterm .xterm-viewport::-webkit-scrollbar-corner { background: transparent; }
 
-  /* ===== CCGlyph status effects: top gradient beam + status chip ===== */
-  #ccg-beam { position:fixed; top:0; left:0; right:0; height:6px; z-index:1200; opacity:0;
-    overflow:hidden; transition:opacity .3s; pointer-events:none; }
-  /* The colour flow animates a transform (translateX) on a dedicated compositor layer, NOT background-position.
-     Chromium paints the gradient once onto .ccg-beam-flow and the compositor scrolls that layer — no per-frame
-     main-thread repaint, so it never competes with xterm (the reason the old background-position animation,
-     which forced a repaint every frame and lagged the terminal, was removed). The strip is 200% wide with a
-     50%-tiled repeating gradient so a -50% translate loops seamlessly. Paused by default; runs only while a
-     state class is on (busy/waiting), so an idle terminal does no compositor work. */
-  .ccg-beam-flow { position:absolute; top:0; left:0; height:100%; width:200%;
-    background:linear-gradient(90deg,#7c3aed,#2563eb,#06b6d4,#2563eb,#7c3aed);
-    background-size:50% 100%; background-repeat:repeat;
-    /* Soft glow: a vertical alpha mask fades the bar from solid (top) to transparent (bottom), so it reads as
-       a diffuse light bleeding down from the top edge rather than a hard 3px line. The mask is baked into the
-       layer once at paint time; only transform animates afterwards, so it stays repaint-free. */
-    -webkit-mask-image:linear-gradient(to bottom,#000,transparent);
-    mask-image:linear-gradient(to bottom,#000,transparent);
-    will-change:transform; animation:ccg-flow 2.4s linear infinite; animation-play-state:paused; }
-  #ccg-beam.on  { opacity:1; }
-  #ccg-beam.on  .ccg-beam-flow { animation-play-state:running; }
-  #ccg-beam.wait { opacity:.95; }
-  #ccg-beam.wait .ccg-beam-flow { animation-duration:1.6s; animation-play-state:running;
-    background:linear-gradient(90deg,#b45309,#f59e0b,#fde68a,#f59e0b,#b45309); background-size:50% 100%; background-repeat:repeat; }
-  #ccg-beam.high .ccg-beam-flow { background:linear-gradient(90deg,#ef4444,#f97316,#ef4444); background-size:50% 100%; background-repeat:repeat; }
-  @keyframes ccg-flow { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+  /* ===== CCGlyph status effects: status chip =====
+     (The gradient beam used to be a CSS animation here, but JCEF runs in off-screen-rendering mode with no GPU
+     compositor — a continuous CSS animation forced Chromium to render every tick and lagged xterm. The beam is
+     now a SWING overlay painted by Kotlin's BeamOverlay, which never makes Chromium render. Only the chip
+     remains in CSS; it's static text, so there's no continuous animation and no perf cost.) */
   #ccg-chip { position:fixed; top:7px; right:14px; z-index:1150; display:none; align-items:center; gap:8px;
     padding:3px 10px; border-radius:999px; background:var(--tg-bg,#1e1e1e);
     border:1px solid var(--tg-border,rgba(128,128,128,0.4)); color:var(--tg-fg,#eee);
@@ -452,7 +432,7 @@ window.tgReloadConfig = (json) => {
         // NEW theme's background (without this, the find-bar colours stay derived from the OLD background after a
         // dark↔light scheme switch — that was the "find panel doesn't recolour on theme change" bug).
         window.TG_CONFIG = cfg;
-        // Re-render the status beam/chip from the refreshed ccg flags (live Settings toggle).
+        // Re-render the status chip from the refreshed ccg flags (live Settings toggle).
         try { window.ccgReload && window.ccgReload(); } catch(e) {}
         try { applyThemeColors(); } catch(e) {}
         try { fitAddon.fit(); } catch(e) {}
@@ -492,16 +472,14 @@ try {
     }
 } catch (e) {}
 
-// ===== CCGlyph status effects: gradient beam + live status chip =====
+// ===== CCGlyph status effects: live status chip =====
 // Flags come from window.TG_CONFIG.ccg (pushed by Kotlin buildConfigJson): {beam, showChip, model, cost, ctx}.
-// The beam is gated by `beam`; the chip by `showChip` + the per-field flags. We remember the last state +
+// (The `beam` flag is vestigial — the gradient beam is now a Swing overlay, not CSS; kept in the payload for
+// back-compat.) The chip is gated by `showChip` + the per-field flags. We remember the last state +
 // snapshot so ccgReload() can re-render immediately on a live Settings toggle (tgReloadConfig calls it),
 // without waiting for the next StatusController update (which is change-gated, not periodic).
 (function () {
   try {
-    var beam = document.createElement('div'); beam.id = 'ccg-beam';
-    var beamFlow = document.createElement('div'); beamFlow.className = 'ccg-beam-flow'; beam.appendChild(beamFlow);
-    document.body.appendChild(beam);
     var chip = document.createElement('div'); chip.id = 'ccg-chip';
     chip.innerHTML = '<span class="ccg-dot"></span><span class="ccg-model"></span><span class="ccg-cost"></span><span class="ccg-ctx"></span>';
     document.body.appendChild(chip);
@@ -511,19 +489,11 @@ try {
     function cfg() {
       var c = (window.TG_CONFIG && window.TG_CONFIG.ccg) || {};
       // Booleans default ON except cost (off) — matches CCGlyphSettings.State defaults.
-      // `beam` is the gradient beam only; the tab-colour effect is separate (Swing, gated in Kotlin).
+      // `beam` is vestigial (the gradient beam is a Swing overlay now); kept so the cfg shape is stable.
       return { beam: c.beam !== false, showChip: c.showChip !== false, model: c.model !== false, cost: c.cost === true, ctx: c.ctx !== false };
     }
     var lastState = 'IDLE', lastHigh = false, lastSnap = null;
 
-    function renderBeam() {
-      beam.className = '';
-      if (!cfg().beam) return;                // beam off → stays hidden (no classes added)
-      var state = lastState;
-      if (state === 'THINKING' || state === 'TOOL_RUNNING') beam.classList.add('on');
-      else if (state === 'WAITING_PERMISSION' || state === 'WAITING_INPUT' || state === 'ERROR') beam.classList.add('wait');
-      if (lastHigh) beam.classList.add('high');
-    }
     function renderChip() {
       var c = cfg(), s = lastSnap || {};
       mEl.textContent = (c.model && s.model) ? s.model : '';
@@ -536,7 +506,7 @@ try {
       var has = mEl.textContent || cEl.textContent || xEl.textContent;
       chip.style.display = (c.showChip && has) ? 'flex' : 'none';
     }
-    function ccgRender() { renderBeam(); renderChip(); }
+    function ccgRender() { renderChip(); }
 
     window.ccgSetState = function (state, highCtx) {
       lastState = state || 'IDLE'; lastHigh = !!highCtx;

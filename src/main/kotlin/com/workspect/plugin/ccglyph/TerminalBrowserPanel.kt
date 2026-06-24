@@ -39,6 +39,10 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
 
     private val disposable: Disposable = parentDisposable
     private val browser = JBCefBrowser()
+    /** Flowing gradient beam, painted as a SWING overlay over the browser's top edge — NOT a CSS animation.
+     *  JCEF OSR has no GPU compositor, so a CSS beam would force a Chromium frame every tick and lag xterm.
+     *  Driven from applyStatusToJs() (same state the chip/tab use). See BeamOverlay. */
+    private val beam = BeamOverlay()
     private var session: TerminalSession
 
     // --- output batching ---
@@ -93,11 +97,15 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
 
     // --- live-reload: settings / theme changes push to xterm immediately ---
     // On a Settings change also re-apply the current status, so a chip/beam/tab toggle takes effect at once
-    // (pushConfigToJs → tgReloadConfig re-renders the beam/chip in JS; re-invoking onStatus re-evaluates the
-    // Swing tab colour via TabBlinker, which itself re-reads the tabColorEnabled flag).
+    // pushConfigToJs refreshes the JS-driven chip (+ its flags). The beam (Swing BeamOverlay) and the tab colour
+    // (Swing TabBlinker) are NOT in JS — re-drive them here from the last state; each re-reads its own Settings
+    // flag (beamEnabled / tabColorEnabled) so a live toggle takes effect at once.
     private val settingsListener = Runnable {
         pushConfigToJs()
-        lastStatusState?.let { onStatus?.invoke(it) }
+        lastStatusState?.let { state ->
+            onStatus?.invoke(state)
+            beam.setBeamState(state, (lastSnapshot?.contextPct ?: 0) >= 80)
+        }
     }
     val isDisposed: Boolean get() = disposed
 
@@ -201,6 +209,11 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Also removes the loading overlay (#tg-loading) injected by extractWebResources.
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadEnd(b: CefBrowser, f: CefFrame, httpStatusCode: Int) {
+                // Show the beam strip only once the terminal page has loaded — otherwise it paints the terminal
+                // bg colour over the still-blank loading area and reads as a black line during the pre-load moment.
+                ApplicationManager.getApplication().invokeLater {
+                    if (!disposed) { beam.isVisible = true; root.revalidate() }
+                }
                 browser.cefBrowser.executeJavaScript("""
                     window.sendInput = function(data) {
                         ${inputQuery.inject("data")}
@@ -288,7 +301,18 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
     }
 
-    val component: JComponent get() = browser.component
+    /** Browser in CENTER, beam in NORTH (its own 6px strip). The beam CANNOT overlay the browser: this build uses
+     *  IntelliJ's REMOTE JCEF (com.jetbrains.cef.remote) whose browser surface is heavyweight, so a lightweight
+     *  Swing component painted over it is always hidden behind it — an overlapping beam was never visible. A NORTH
+     *  strip is a separate region (no overlap → renders fine) and stays pure-Swing → no Chromium frames → no xterm
+     *  lag. The strip is always present (6px); it clears to transparent when idle. */
+    private val root = javax.swing.JPanel(java.awt.BorderLayout()).apply {
+        isOpaque = false
+        add(browser.component, java.awt.BorderLayout.CENTER)
+        add(beam, java.awt.BorderLayout.NORTH)
+    }
+
+    val component: JComponent get() = root
 
     /** Register component-scoped keyboard shortcuts (override the global keymap when the terminal is focused).
      *  IDE actions call tgClear()/tgCtrlC() instead of relying on a JS keydown handler
@@ -463,6 +487,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     fun applyStatusToJs(state: ClaudeState, snapshot: StatusSnapshot?) {
         if (disposed) return
         val highCtx = (snapshot?.contextPct ?: 0) >= 80
+        beam.setBeamState(state, highCtx)   // Swing strip beam (a CSS animation would lag xterm; overlay can't paint over remote JCEF)
         runCatching {
             browser.cefBrowser.executeJavaScript(
                 "window.ccgSetState && window.ccgSetState('${state.name}', ${highCtx});",
@@ -654,9 +679,11 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             "\"allowTransparency\":false," +
             "\"allowProposedApi\":true," +   // unlocks registerDecoration() — the find active-match highlight (yellow bg + black text)
             "\"theme\":$themeJson," +
-            // Status beam + chip flags (global). terminal.html reads window.TG_CONFIG.ccg to gate the
-            // beam + chip (and re-renders on live-reload via tgReloadConfig). The tab-colour effect is
-            // separate (Swing TabBlinker, gated in Kotlin) so it isn't part of this JS config. Cost defaults off.
+            // Status chip flags (global). terminal.html reads window.TG_CONFIG.ccg to gate the chip (and
+            // re-renders on live-reload via tgReloadConfig). The gradient beam AND the tab-colour effect are
+            // both Swing overlays (BeamOverlay / TabBlinker, gated in Kotlin) — not CSS — so the only JS flag
+            // that matters here is showChip + the per-field toggles. `beam` is kept in the payload for back-compat
+            // (vestigial in JS; the Swing BeamOverlay re-reads beamEnabled directly). Cost defaults off.
             "\"ccg\":{\"beam\":${s.beamEnabled},\"showChip\":${s.showStatusChip},\"model\":${s.chipShowModel},\"cost\":${s.chipShowCost},\"ctx\":${s.chipShowContext}}" +
             "}"
     }
@@ -826,6 +853,137 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         inputQuery.dispose()
         resizeQuery.dispose()
         browser.dispose()
+        beam.dispose()
+    }
+
+    /**
+     * A thin gradient "beam" painted as a SWING strip directly above the terminal (its own 6px region, NOT
+     * overlapping the browser).
+     *
+     * WHY SWING, NOT CSS: the JCEF browser renders every frame of a continuous CSS animation and pushes it into
+     * Swing, competing with xterm and lagging the terminal (worst while Claude streams — exactly when the beam
+     * animates). A Swing beam repaints only its own strip on the EDT and never makes Chromium render, so the beam
+     * flows with zero impact on xterm.
+     *
+     * WHY A SEPARATE STRIP, NOT AN OVERLAY: this build's JCEF is the remote variant (com.jetbrains.cef.remote),
+     * whose browser surface is heavyweight. A lightweight Swing component painted OVER it is always hidden behind
+     * it — an overlapping beam was never visible. So the beam lives in its own BorderLayout.NORTH region (no
+     * overlap, renders fine). The strip is always 6px; when idle it paints the terminal's background colour so it
+     *  blends in (no visible strip until a state activates).
+     *
+     * Look matches the old CSS beam: a soft glow (vertical alpha fade, opaque top → transparent bottom) + state
+     * colours (purple/blue running, amber waiting, red near-limit) + a flowing phase.
+     */
+    private class BeamOverlay : JComponent() {
+        private val timer = javax.swing.Timer(FRAME_MS) { advance() }.apply { isRepeats = true }
+        private var phase = 0f
+        @Volatile private var mode = Mode.IDLE
+        private var bi: java.awt.image.BufferedImage? = null
+        private var biW = 0
+        private var biH = 0
+
+        private enum class Mode { IDLE, RUNNING, WAITING, HIGH }
+
+        init { isOpaque = true; isVisible = false }
+
+        /** The strip is always 6px tall (BorderLayout.NORTH uses this height); the terminal is permanently 6px
+         *  shorter so it never resizes on a state change. */
+        override fun getPreferredSize(): java.awt.Dimension = java.awt.Dimension(1024, BEAM_H)
+
+        /** Drive the beam from the same (state, high-context) the chip/tab use. Re-reads `beamEnabled` each call
+         *  so the live Settings toggle takes effect immediately (mirrors TabBlinker). Thread-safe (Swing work on EDT). */
+        fun setBeamState(state: ClaudeState, high: Boolean) {
+            val enabled = CCGlyphSettings.getInstance().state.beamEnabled
+            val next = when {
+                !enabled -> Mode.IDLE
+                high -> Mode.HIGH
+                state.isBusy -> Mode.RUNNING
+                state.isWaiting || state == ClaudeState.ERROR -> Mode.WAITING
+                else -> Mode.IDLE
+            }
+            if (next == mode) return
+            mode = next
+            ApplicationManager.getApplication().invokeLater {
+                if (next == Mode.IDLE) {
+                    if (timer.isRunning) timer.stop()
+                    repaint()   // repaint so the strip reverts to the terminal bg colour (blends in when idle)
+                } else if (!timer.isRunning) {
+                    phase = 0f
+                    timer.start()
+                }
+            }
+        }
+
+        fun dispose() { if (timer.isRunning) timer.stop() }
+
+        /** The terminal's background colour — the strip fills with this so it blends in when idle. Matches what
+         *  buildConfigJson sets as the xterm theme background (scheme.defaultBackground); re-read each paint so a
+         *  theme change takes effect at once. */
+        private fun terminalBg(): java.awt.Color =
+            runCatching { EditorColorsManager.getInstance().globalScheme.defaultBackground }
+                .getOrDefault(java.awt.Color(0x1e, 0x1e, 0x1e))
+
+        private fun advance() {
+            val w = width
+            if (w <= 0) return
+            // One full flow cycle ≈ 2.4s running / 1.6s waiting (matches the old CSS durations) at ~30fps.
+            val cycle = if (mode == Mode.WAITING) WAIT_FRAMES else RUN_FRAMES
+            phase += w.toFloat() / cycle
+            if (phase >= w) phase -= w.toFloat()
+            repaint()
+        }
+
+        override fun paintComponent(g: java.awt.Graphics) {
+            val g2 = g as java.awt.Graphics2D
+            val w = width; val h = height
+            if (w <= 0 || h <= 0) return
+            // Always fill with the terminal's own background colour first. The strip sits directly above the
+            // terminal, so matching its bg makes the strip invisible when idle (no black gap) and gives the glow
+            // a colour to fade into when active. isOpaque=true (init) tells Swing not to paint anything behind us.
+            g2.color = terminalBg()
+            g2.fillRect(0, 0, w, h)
+            if (mode == Mode.IDLE) return
+            val (colors, fracs) = palette(mode) ?: return
+            // Render into a tiny ARGB scratch image: (1) the flowing horizontal gradient — REPEAT is seamless
+            // because each palette's end colour == its start — then (2) a vertical alpha fade via DST_IN so the
+            // bar reads as a soft glow bleeding down from the top edge (exactly the old CSS mask).
+            var img = bi
+            if (img == null || biW != w || biH != h) {
+                img = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                bi = img; biW = w; biH = h
+            }
+            val period = w.toFloat()
+            val bg = img.createGraphics()
+            bg.composite = java.awt.AlphaComposite.Src
+            bg.paint = java.awt.LinearGradientPaint(
+                -phase, 0f, period - phase, 0f, fracs, colors,
+                java.awt.MultipleGradientPaint.CycleMethod.REPEAT
+            )
+            bg.fillRect(0, 0, w, h)
+            bg.composite = java.awt.AlphaComposite.DstIn
+            bg.paint = java.awt.GradientPaint(
+                0f, 0f, java.awt.Color(255, 255, 255, 255),
+                0f, h.toFloat(), java.awt.Color(255, 255, 255, 0)
+            )
+            bg.fillRect(0, 0, w, h)
+            bg.dispose()
+            g2.drawImage(img, 0, 0, null)
+        }
+
+        private fun palette(m: Mode): Pair<Array<java.awt.Color>, FloatArray>? = when (m) {
+            Mode.RUNNING -> ary(0x7c3aed, 0x2563eb, 0x06b6d4, 0x2563eb, 0x7c3aed) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
+            Mode.WAITING -> ary(0xb45309, 0xf59e0b, 0xfde68a, 0xf59e0b, 0xb45309) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
+            Mode.HIGH -> ary(0xef4444, 0xf97316, 0xef4444) to floatArrayOf(0f, .5f, 1f)
+            Mode.IDLE -> null
+        }
+
+        private fun ary(vararg rgb: Int) = Array(rgb.size) { java.awt.Color(rgb[it]) }
+
+        private companion object {
+            const val FRAME_MS = 33      // ~30fps — smooth for a beam, half the Swing work of 60fps
+            const val RUN_FRAMES = 72    // 2.4s flow cycle (matches the old running duration)
+            const val WAIT_FRAMES = 48   // 1.6s flow cycle (matches the old waiting duration)
+        }
     }
 
     companion object {
@@ -869,7 +1027,10 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         /** Version of the extracted web + bridge assets. Bump every time you edit terminal.html/xterm OR the
          *  bridge scripts (ccglyph-bridge / ccglyph-bridge.cmd): both are extracted once into a temp dir keyed
          *  on this version (with a `.done` marker), so a stale version keeps serving the OLD assets. */
-        const val WEB_VERSION = "v22"
+        const val WEB_VERSION = "v23"
+
+        /** Height (px) of the Swing BeamOverlay strip — matches the old CSS beam height. */
+        const val BEAM_H = 6
 
         /** Static xterm assets that are extracted once at startup (not per-tab). */
         private val STATIC_ASSETS = listOf(

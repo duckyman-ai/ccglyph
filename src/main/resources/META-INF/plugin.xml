@@ -15,7 +15,7 @@
             reflect whether Claude is thinking, running a tool, or waiting for permission. The chip shows model and
             context-window usage live (via injected hooks &amp; statusLine); both the chip contents and the effects are
             fully configurable in Settings (cost is opt-in).</li>
-        <li><b>Context dashboard</b> &mdash; a context-window fuel gauge and rate-limit proximity warnings (per-session cost is optional).</li>
+        <li><b>Context &amp; rate-limit awareness</b> &mdash; a context-window fuel gauge in the chip, and proximity warnings as the context window or the 5-hour usage quota fills up (per-session cost is optional).</li>
         <li>Clean rendering, <b>Find</b> (Cmd/Ctrl+F), copy/paste, native side-by-side split, tab icons/titles that follow
             the running process, and IDE-theme following.</li>
         </ul>

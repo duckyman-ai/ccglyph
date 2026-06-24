@@ -22,14 +22,20 @@ It also fixes combining and wide characters — Thai vowels/tone marks (◌ั �
 
 ## Features
 
+**Built for Claude Code:**
+
+- 🎛 **Profiles** — launch each session from a chosen Claude Code `settings.json`: model, permission-mode, env vars, and an isolated config dir. Pick from the **New Session** popup on the **+** button.
+- 💫 **Live status effects** — a gradient **beam** across the top, a colour-changing **tab**, and a glass **status chip** reflect whether Claude is *thinking*, *running a tool*, or *waiting for permission* (driven by injected hooks + statusLine). The chip shows the model and context-window % live; per-session cost is opt-in.
+- 🚦 **Context & rate-limit awareness** — a context-window "fuel gauge" in the chip, plus balloon warnings as the context window or the 5-hour usage quota fills up.
+
+**A better terminal:**
+
 - ✅ **Clean rendering** — Claude Code's input box/borders and dense output display without overlapping; Thai/emoji/wide chars compose correctly (xterm.js Unicode 11).
 - 🗂 **Multiple tabs + native side-by-side split** — Split Right / Split Down / Change Orientation / Unsplit, exactly like the IDE's own terminal.
-- 🔍 **Find** (Cmd/Ctrl+F) — navigate matches; the active match is highlighted.
-- 📋 **Copy / Paste / Clear** — native right-click menu.
+- 🔍 **Find** (Cmd/Ctrl+F), 📋 **copy / paste / clear**, ⚡ **fast** — WebGL renderer (DOM fallback), output batching, anti-freeze repaints.
 - 🏷 **Tab icons & titles follow the running process** — e.g. "Claude Code" with its icon while claude runs.
 - 🎨 **Follows your IDE theme** — background/foreground from the editor color scheme; the 16 ANSI colours come from *Editor › Color Scheme › Console Colors*. Truecolor (`COLORTERM=truecolor`) is advertised so tools like `starship`/`bat`/`eza` are vivid.
-- ⚡ **Fast** — WebGL renderer (auto-falls back to DOM), output batching, anti-freeze repaints.
-- 🪟 **Settings** — *Settings → Tools → CCGlyph* for font/shell/scrollback/cursor.
+- 🪟 **Settings** — *Settings → Tools → CCGlyph* for font/shell, the new-tab default, and which status effects + chip fields are shown.
 
 ## Requirements — JCEF
 
@@ -63,6 +69,8 @@ Minimum IDE: **2025.3** (the native split API + build target).
 | Settings | gear (⋮) menu → **Settings…** |
 
 Each terminal opens at the **project folder**. The tab's icon/title follows the running process (e.g. Claude Code).
+
+**Start a Claude Code session** with the **+** button → choose a profile (or *Plain terminal*). The first tab is always a Claude session. While Claude works, the **gradient beam** (top), **tab colour**, and **status chip** (model / context %) reflect its state automatically — toggle them under *Settings → Tools → CCGlyph*.
 
 ## Thai rendering test
 
