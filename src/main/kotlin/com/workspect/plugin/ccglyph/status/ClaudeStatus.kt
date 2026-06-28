@@ -15,6 +15,13 @@ enum class ClaudeState {
     /** Busy states animate the beam + tab. */
     val isBusy: Boolean get() = this == THINKING || this == TOOL_RUNNING
     val isWaiting: Boolean get() = this == WAITING_PERMISSION || this == WAITING_INPUT
+
+    /** Turn-over resting states: the turn is done and Claude is awaiting the next prompt (IDLE outright, or
+     *  WAITING_INPUT after it fires an idle_prompt). A late continuation event fired AFTER the main Stop —
+     *  e.g. a background subagent's SubagentStop tearing down — must not wake these back to THINKING, or the
+     *  beam latches on "thinking" forever. See [StatusController.deriveState]'s latch. (WAITING_PERMISSION
+     *  is NOT turn-done: it's a mid-turn pause for approval, so the PostToolUse after approval still applies.) */
+    val isTurnDone: Boolean get() = this == IDLE || this == WAITING_INPUT
 }
 
 /** Rich status snapshot parsed from the statusLine payload (the bridge's `status.json`). */

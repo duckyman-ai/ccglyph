@@ -70,11 +70,26 @@ class StatusController(
             if (parsed != null && parsed != lastSnapshot) { lastSnapshot = parsed; snap = parsed; snapChanged = true }
         }
 
-        // events.jsonl — hook events; derive the state machine from the latest event.
-        val ev = readLastEvent()
-        if (ev != null) {
-            val derived = deriveState(ev)
-            if (derived != lastState) { lastState = derived; newState = derived; stateChanged = true }
+        // events.jsonl — fold EVERY main-session event through the state machine in order, starting from
+        // IDLE. The state machine is a pure fold over the event log, so re-deriving from scratch on each
+        // growth is deterministic and correct no matter how many events landed in one 150ms poll window.
+        // This fixes two flaws the old "read only the newest line" design had:
+        //  (1) a Stop could be MASKED by a continuation event appended in the same window (the Stop was then
+        //      never seen → beam never went idle); folding applies the Stop first.
+        //  (2) the late-event latch in deriveState only works if the Stop was actually applied — folding
+        //      guarantees that, so a post-Stop SubagentStop is dropped instead of latching THINKING.
+        if (eventsFile.isFile && eventsFile.length() != lastEventsLen) {
+            lastEventsLen = eventsFile.length()
+            val text = runCatching { eventsFile.readText() }.getOrNull()
+            if (text != null) {
+                var s = ClaudeState.IDLE
+                for (line in text.lineSequence().filter { it.isNotBlank() }) {
+                    val info = parseEvent(line) ?: continue
+                    if (!info.isMainSession) continue
+                    s = deriveState(s, info)
+                }
+                if (s != lastState) { lastState = s; newState = s; stateChanged = true }
+            }
         }
 
         if (stateChanged || snapChanged) {
@@ -84,23 +99,6 @@ class StatusController(
                 if (!disposed) onUpdate?.invoke(s, sn)
             }
         }
-    }
-
-    /** Read the newest **main-session** event from events.jsonl (only if the file grew). Subagent-internal
-     *  events are skipped (see [parseEvent]) so a subagent's own Stop/PreToolUse — fired *inside* it when
-     *  Claude Code inherits our hooks into its session — can't flip the parent session's state. */
-    private fun readLastEvent(): EventInfo? {
-        if (!eventsFile.isFile) return null
-        val len = eventsFile.length()
-        if (len <= lastEventsLen) return null
-        lastEventsLen = len
-        val text = runCatching { eventsFile.readText() }.getOrNull() ?: return null
-        // Scan newest→oldest; the first main-session event we hit is the one that should drive state.
-        for (line in text.lineSequence().filter { it.isNotBlank() }.toList().asReversed()) {
-            val info = parseEvent(line) ?: continue
-            if (info.isMainSession) return info
-        }
-        return null
     }
 
     /** Parse one event line into an [EventInfo]. [isMainSession] is false for hooks Claude Code fired
@@ -114,12 +112,16 @@ class StatusController(
         return EventInfo(name, ntype, isMainSession = !subagentInternal)
     }
 
-    private fun deriveState(ev: EventInfo): ClaudeState {
-        // Once IDLE (after a Stop/SessionEnd), ignore left-over continuation events from the prior turn.
-        // Claude Code can emit a SubagentStop — or other tool events — *after* the main Stop when a
-        // background subagent finishes late; without this latch that would flip a finished session back to
-        // a busy state and the beam/tab would blink forever. Only a turn-starting event wakes us out of IDLE.
-        if (lastState == ClaudeState.IDLE && ev.name !in TURN_STARTERS) return ClaudeState.IDLE
+    private fun deriveState(prev: ClaudeState, ev: EventInfo): ClaudeState {
+        // Once a turn is OVER (IDLE, or WAITING_INPUT after Claude fires an idle_prompt), ignore left-over
+        // continuation events: Claude Code emits a SubagentStop — sometimes a PostToolUse too — *after* the
+        // main Stop (a background subagent tearing down late), and crucially AFTER the idle_prompt as well.
+        // Without this latch that late event flips a finished session back to THINKING and the beam latches
+        // on "thinking" forever. The latch must cover WAITING_INPUT, not just IDLE: a late SubagentStop
+        // landing while WAITING_INPUT (the normal post-turn state) is exactly the stuck-thinking bug.
+        // `prev` is passed in (not read from the field) so the whole event log can be folded from IDLE each
+        // poll in tick() — otherwise the latch would reference stale cross-tick state.
+        if (prev.isTurnDone && ev.name !in TURN_STARTERS) return prev
         return when (ev.name) {
             "UserPromptSubmit" -> ClaudeState.THINKING
             "PreToolUse" -> ClaudeState.TOOL_RUNNING
@@ -137,7 +139,7 @@ class StatusController(
             "Stop" -> ClaudeState.IDLE
             "StopFailure" -> ClaudeState.ERROR
             "SessionStart", "SessionEnd" -> ClaudeState.IDLE
-            else -> lastState
+            else -> prev
         }
     }
 
