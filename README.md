@@ -25,7 +25,7 @@ It also fixes combining and wide characters — Thai vowels/tone marks (◌ั �
 **Built for Claude Code:**
 
 - 🎛 **Profiles** — launch each session from a chosen Claude Code `settings.json`: model, permission-mode, env vars, and an isolated config dir. Pick from the **New Session** popup on the **+** button.
-- 💫 **Live status effects** — a gradient **beam** across the top, a colour-changing **tab**, and a glass **status chip** reflect whether Claude is *thinking*, *running a tool*, or *waiting for permission* (driven by injected hooks + statusLine). The chip shows the model and context-window % live; per-session cost is opt-in.
+- 💫 **Live status effects** — a gradient **beam** across the top, a colour-changing **tab**, and a glass **status chip** reflect whether Claude is *thinking*, *running a tool*, *waiting for permission*, or has hit a *tool error* (driven by injected hooks + statusLine). The chip shows the model and context-window % live; per-session cost is opt-in. See the [status colour table](#status-colours) below.
 - 🚦 **Context & rate-limit awareness** — a context-window "fuel gauge" in the chip, plus balloon warnings as the context window or the 5-hour usage quota fills up.
 
 **A better terminal:**
@@ -36,6 +36,20 @@ It also fixes combining and wide characters — Thai vowels/tone marks (◌ั �
 - 🏷 **Tab icons & titles follow the running process** — e.g. "Claude Code" with its icon while claude runs.
 - 🎨 **Follows your IDE theme** — background/foreground from the editor color scheme; the 16 ANSI colours come from *Editor › Color Scheme › Console Colors*. Truecolor (`COLORTERM=truecolor`) is advertised so tools like `starship`/`bat`/`eza` are vivid.
 - 🪟 **Settings** — *Settings → Tools → CCGlyph* for font/shell, the new-tab default, and which status effects + chip fields are shown.
+
+## Status colours
+
+While Claude works, the **beam** (the strip across the top of the terminal) and the **tab** colour signal its state. The status chip shows the model and context-window % regardless of state.
+
+| State | Beam (top strip) | Tab |
+|-------|------------------|-----|
+| **Thinking** / **Running a tool** | purple → blue → cyan | purple / blue (blinks) |
+| **Waiting** for permission or input | amber (gold) | amber (blinks) |
+| **Tool error** (a tool failed) | red | red (blinks) |
+| **Near limit** — context window ≥ 80 % or 5-hour rate quota | red → orange | — |
+| **Idle** | blends into the background | normal |
+
+A tool error is transient — the beam/tab flash red, then recover on the next step. The beam and tab effects are independent toggles under *Settings → Tools → CCGlyph*.
 
 ## Requirements — JCEF
 

@@ -872,7 +872,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
      *  blends in (no visible strip until a state activates).
      *
      * Look matches the old CSS beam: a soft glow (vertical alpha fade, opaque top → transparent bottom) + state
-     * colours (purple/blue running, amber waiting, red near-limit) + a flowing phase.
+     * colours (purple/blue running, amber waiting, red error, red/orange near-limit) + a flowing phase.
      */
     private class BeamOverlay : JComponent() {
         private val timer = javax.swing.Timer(FRAME_MS) { advance() }.apply { isRepeats = true }
@@ -882,7 +882,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         private var biW = 0
         private var biH = 0
 
-        private enum class Mode { IDLE, RUNNING, WAITING, HIGH }
+        private enum class Mode { IDLE, RUNNING, WAITING, ERROR, HIGH }
 
         init { isOpaque = true; isVisible = false }
 
@@ -897,8 +897,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             val next = when {
                 !enabled -> Mode.IDLE
                 high -> Mode.HIGH
+                state == ClaudeState.ERROR -> Mode.ERROR
                 state.isBusy -> Mode.RUNNING
-                state.isWaiting || state == ClaudeState.ERROR -> Mode.WAITING
+                state.isWaiting -> Mode.WAITING
                 else -> Mode.IDLE
             }
             if (next == mode) return
@@ -973,6 +974,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         private fun palette(m: Mode): Pair<Array<java.awt.Color>, FloatArray>? = when (m) {
             Mode.RUNNING -> ary(0x7c3aed, 0x2563eb, 0x06b6d4, 0x2563eb, 0x7c3aed) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
             Mode.WAITING -> ary(0xb45309, 0xf59e0b, 0xfde68a, 0xf59e0b, 0xb45309) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
+            // Pure red (red-700 ↔ red-500), distinct from HIGH's red→orange (near-limit) so a failed tool doesn't read
+            // as "almost out of context". Symmetric ends keep the REPEAT seam invisible like the other palettes.
+            Mode.ERROR -> ary(0xb91c1c, 0xef4444, 0xb91c1c) to floatArrayOf(0f, .5f, 1f)
             Mode.HIGH -> ary(0xef4444, 0xf97316, 0xef4444) to floatArrayOf(0f, .5f, 1f)
             Mode.IDLE -> null
         }

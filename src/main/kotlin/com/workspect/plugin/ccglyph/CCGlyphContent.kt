@@ -208,7 +208,7 @@ internal object CCGlyphContent {
                 content.setTabColor(null)
                 return
             }
-            if (newState.isBusy || newState.isWaiting) {
+            if (newState.isBusy || newState.isWaiting || newState == com.workspect.plugin.ccglyph.status.ClaudeState.ERROR) {
                 if (!timer.isRunning) { on = false; timer.start() }
             } else {
                 if (timer.isRunning) timer.stop()
@@ -225,6 +225,8 @@ internal object CCGlyphContent {
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_PERMISSION,
             com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_INPUT ->
                 java.awt.Color(0xb4, 0x53, 0x09) to java.awt.Color(0x42, 0x3a, 0x06)   // amber blink
+            com.workspect.plugin.ccglyph.status.ClaudeState.ERROR ->
+                java.awt.Color(0xb9, 0x1c, 0x1c) to java.awt.Color(0x7f, 0x1d, 0x1d)   // red blink (matches the beam's ERROR palette)
             else -> null
         }
 
