@@ -7,6 +7,7 @@ import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.TitledSeparator
+import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.FormBuilder
@@ -61,9 +62,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         // even when the system does not register it as a family), then append every system font alphabetically.
         val sysFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.sorted()
         val fontList = (linkedSetOf(CCGlyphSettings.DEFAULT_FONT, "monospace") + sysFonts).toTypedArray()
-        // Each font name is rendered in its own font (like the IDE's editor font picker) so the user can
-        // preview the typeface while choosing. Names not registered as families (e.g. "monospace") fall back
-        // to the default UI font.
         val fontPreview = fontPreviewRenderer()
         fontCombo = ComboBox(fontList).apply {
             renderer = fontPreview
@@ -96,8 +94,8 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             maxOf(fontCombo.preferredSize.width * 2, 400), shellCombo.preferredSize.height
         )
 
-        // The ⋯ button (More Horizontal) opens a file chooser to select the shell executable; on macOS it starts at /usr/bin.
-        // The ⋯ icon alone is hard to hit, so give the button comfortable horizontal padding (10px sides,
+        // ⋯ opens a file chooser for the shell executable (starts at /usr/bin on macOS). Extra horizontal
+        // padding makes the small icon easier to hit.
         val browseIcon = AllIcons.Actions.MoreHorizontal
         val browseButton = JButton(browseIcon).apply {
             toolTipText = "Browse for shell executable..."
@@ -113,8 +111,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             }
         }
 
-        // Status chip & effects checkboxes (global). These are the only "behaviour" toggles here — the rest
-        // of the page is terminal appearance + profiles. Beam and tab colour are independent toggles.
         beamCb = JCheckBox("Gradient beam", s.beamEnabled)
         tabCb = JCheckBox("Tab color", s.tabColorEnabled)
         chipCb = JCheckBox("Show status chip", s.showStatusChip)
@@ -127,10 +123,7 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipCb.addItemListener { syncChipSubEnabled() }
         syncChipSubEnabled()
 
-        // UI DSL panel — the IntelliJ-native settings layout. Its first row sits flush at the top of the
-        // settings content area (no leading inset), matching every other IDE settings page. Components are
-        // added as inline cells so UI DSL aligns their baselines and the label column stays consistent.
-        // Section headers go through section() (see below).
+        // Inline cells keep UI DSL's label column and baselines aligned; section headers go through section().
         return panel {
             section("Terminal")
             row("Font:") { cell(fontCombo); label("Fallback:"); cell(fallbackCombo) }
@@ -152,22 +145,19 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             }
             row { cell(dismissCb) }
             section("Profiles")
-            row { cell(profiles.createComponent()).resizableColumn() }
+            row { cell(profiles.createComponent()).align(AlignX.FILL).resizableColumn() }
         }
     }
 
-    /** Section header = the native IntelliJ TitledSeparator (the same component the Edit-Profile dialog uses).
-     *  TitledSeparator's rule only renders when the component is wide AND laid out by FormBuilder's GridBagLayout
-     *  (fill=HORIZONTAL); a bare TitledSeparator in a UI DSL cell collapses to no rule. So it's wrapped in a
-     *  one-row FormBuilder panel, given a wide-ish preferred size (so it renders) capped by a maximum width
-     *  (so it doesn't stretch past the form fields and look oversized). resizableColumn lets it shrink if the
-     *  row is narrower than the cap. */
+    /** Section header = TitledSeparator. A bare TitledSeparator in a UI DSL cell collapses to no rule, so wrap it
+     *  in a FormBuilder panel (GridBagLayout fill=HORIZONTAL grows the rule). A wide preferredSize makes the rule
+     *  render immediately; an uncapped maximumSize + align(FILL)+resizableColumn stretches it to the dialog width. */
     private fun Panel.section(title: String) {
         row {
             val header = FormBuilder.createFormBuilder().addComponent(TitledSeparator(title)).panel
-            header.preferredSize = Dimension(795, header.preferredSize.height)
-            header.maximumSize = Dimension(795, Int.MAX_VALUE)
-            cell(header).resizableColumn()
+            header.preferredSize = Dimension(625, header.preferredSize.height)
+            header.maximumSize = Dimension(Int.MAX_VALUE, header.preferredSize.height)
+            cell(header).align(AlignX.FILL).resizableColumn()
         }
     }
 
