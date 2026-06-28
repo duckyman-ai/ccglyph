@@ -15,6 +15,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
@@ -27,6 +28,7 @@ import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.content.ContentFactory
+import com.intellij.ui.content.ContentManager
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import java.awt.BorderLayout
@@ -93,7 +95,7 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
                     // open one via the "+" button, and the tab-close itself completes cleanly.
                     ApplicationManager.getApplication().invokeLater {
                         if (project.isDisposed) return@invokeLater
-                        runCatching { createTerminalContent(toolWindow, project) }
+                        runCatching { createTerminalContent(toolWindow.contentManager, toolWindow, project) }
                     }
                 }
             }
@@ -116,7 +118,7 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         // The FIRST tab lands on a Claude Code session (the plugin's purpose) — last-used profile or Default.
         // Subsequent "+" taps open plain shells; see createTerminalContent.
         val workDir = project.basePath ?: System.getProperty("user.home")
-        createTerminalContent(toolWindow, project, CCGlyphContent.defaultClaudeSpec(project, workDir))
+        createTerminalContent(toolWindow.contentManager, toolWindow, project, CCGlyphContent.defaultClaudeSpec(project, workDir))
     }
 
     /** Show a banner when JCEF is missing (Android Studio / Community Edition without the JCEF plugin). */
@@ -145,8 +147,11 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         if (CCGlyphSettings.getInstance().state.plusOpensPlainShell) SessionLauncher.plainShell(workDir)
         else CCGlyphContent.defaultClaudeSpec(project, workDir)
 
-    /** Opens a new terminal as a **switchable tab** in the contentManager and selects it (the IDE renders the tab strip). */
-    private fun createTerminalContent(toolWindow: ToolWindow, project: Project, launchSpec: LaunchSpec? = null) {
+    /** Opens a new terminal as a **switchable tab** in the given [contentManager] and selects it
+     *  (the IDE renders the tab strip).  When called from the tool-window "+", [contentManager] is
+     *  the one currently focused (from `PlatformDataKeys.TOOL_WINDOW_CONTENT_MANAGER`), so a "+" click
+     *  inside a split cell adds a terminal to that cell's tab strip, not the top-level one. */
+    private fun createTerminalContent(contentManager: ContentManager, toolWindow: ToolWindow, project: Project, launchSpec: LaunchSpec? = null) {
 
         // Initial CWD = the project folder; Light projects without a base path → fall back to the user's home
         val workDir = project.basePath ?: System.getProperty("user.home")
@@ -157,7 +162,7 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         val content = CCGlyphContent.createContent(project, toolWindow.disposable, workDir, spec)
         // Wire the context-menu "New Tab" / "Close Tab" actions (the factory owns the tool window; the panel doesn't).
         content.getUserData(CCGlyphContent.PANEL_KEY)?.let { panel ->
-            panel.onNewTab = { createTerminalContent(toolWindow, project) }
+            panel.onNewTab = { createTerminalContent(contentManager, toolWindow, project) }
             panel.onCloseTab = {
                 ApplicationManager.getApplication().invokeLater {
                     // Remove from whatever manager actually owns this content (a split pane's manager, or the
@@ -166,11 +171,8 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
                 }
             }
         }
-        // Add to the focused split pane — the content manager owning the currently-selected content — so a new
-        // tab opened from inside a split lands in the pane the user is looking at, not the top-level strip.
-        val cm = toolWindow.contentManager.selectedContent?.manager ?: toolWindow.contentManager
-        cm.addContent(content)
-        cm.setSelectedContent(content)
+        contentManager.addContent(content)
+        contentManager.setSelectedContent(content)
 
         // Force a layout pass on the next turn — JCEF components (heavyweight) sometimes don't get their full size until a
         // resize event fires, which makes xterm fit to an overly narrow size on first open; revalidate immediately to get the real size
@@ -244,13 +246,20 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
     override fun isApplicable(project: Project): Boolean = true
 
     /** The "+" beside the tabs → opens a new terminal TAB (a plain shell), matching the built-in terminal's
-     *  "+" convention. A Claude Code session is launched via the Profiles button (▼) beside it. */
+     *  "+" convention. A Claude Code session is launched via the Profiles button (▼) beside it.
+     *  Uses the focused `ContentManager` from the `AnActionEvent` data context, so when the tool window
+     *  is SPLIT into multiple panes the "+" adds a new terminal to the pane the user actually clicked in
+     *  (each split cell has its own `ContentManager`). Falls back to the tool-window-wide CM. */
     private inner class NewTerminalAction(val toolWindow: ToolWindow, val project: Project) :
         AnAction("New Terminal", "Open a new terminal (plain shell)", AllIcons.General.Add) {
 
         override fun actionPerformed(e: AnActionEvent) {
+            // Use the focused CM from the data context — in a split this returns the *cell's* CM,
+            // not the tool-window-global one. Falls back to the global CM if no context is available.
+            val cm = e.getData(PlatformDataKeys.TOOL_WINDOW_CONTENT_MANAGER)
+                ?: toolWindow.contentManager
             ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) runCatching { createTerminalContent(toolWindow, project) }
+                if (!project.isDisposed) runCatching { createTerminalContent(cm, toolWindow, project) }
             }
         }
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
@@ -258,11 +267,15 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
 
     /** Header button beside "+": a popup listing every profile to start a session with, plus a separator
      *  and "Manage Profiles…" at the bottom (opens the settings page). Reuses [NewSessionPopup] (same
-     *  list the gear menu shows) but anchors the popup just under this button. */
+     *  list the gear menu shows) but anchors the popup just under this button.
+     *  Resolves the focused [ContentManager] from the event context so a new session lands in the
+     *  correct split pane. */
     private inner class ProfilesButton(val toolWindow: ToolWindow, val project: Project) :
         AnAction("Profiles", "Start a Claude session, a plain terminal, or manage profiles", AllIcons.General.ChevronDown) {
 
         override fun actionPerformed(e: AnActionEvent) {
+            // Resolve the focused CM synchronously while the event context is valid.
+            val cm = e.getData(PlatformDataKeys.TOOL_WINDOW_CONTENT_MANAGER) ?: toolWindow.contentManager
             NewSessionPopup.show(project, anchor = e.inputEvent?.component) { choice ->
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater
@@ -272,7 +285,7 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
                         is NewSessionChoice.ProfileSession ->
                             SessionLauncher.launch(choice.profile, dir, ProfileService.getInstance().state.injectBridgeByDefault)
                     }
-                    runCatching { createTerminalContent(toolWindow, project, spec) }
+                    runCatching { createTerminalContent(cm, toolWindow, project, spec) }
                 }
             }
         }
