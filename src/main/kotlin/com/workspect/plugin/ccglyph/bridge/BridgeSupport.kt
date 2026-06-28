@@ -48,10 +48,15 @@ object BridgeSupport {
         }
     }
 
-    /** Hook events CCGlyph subscribes to (the inputs to the status state machine). */
+    /** Hook events CCGlyph subscribes to (the inputs to the status state machine). Order follows the
+     *  turn lifecycle so the list reads top-to-bottom as a session progresses. SubagentStart/Stop bracket
+     *  an in-flight Agent tool call, so they sit beside the other tool events; each must also be mapped in
+     *  [com.workspect.plugin.ccglyph.status.StatusController.deriveState] or it falls through to the
+     *  previous state (no event is then emitted for it). */
     private val HOOK_EVENTS = listOf(
-        "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification",
-        "Stop", "StopFailure", "SessionStart", "SessionEnd",
+        "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+        "SubagentStart", "SubagentStop", "Notification", "Stop", "StopFailure",
+        "SessionStart", "SessionEnd",
     )
 
     /** The JSON fragment (`statusLine` + `hooks`) deep-merged onto a profile's base settings.
