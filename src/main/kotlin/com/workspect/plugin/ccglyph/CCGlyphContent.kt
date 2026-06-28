@@ -113,6 +113,18 @@ internal object CCGlyphContent {
                 runCatching { content.displayName = osc.ifBlank { title } }
             }
         }
+        // Auto-close the tab when the session's process exits (claude Ctrl+C quit / crash). The dead panel has no
+        // shell to fall back to — claude is exec'd, so the PTY process IS claude — and a frozen inert tab serves no
+        // purpose. removeContent from whatever manager owns this content (top-level tab or a split cell); the
+        // close-confirmation is skipped because runningProcesses() is empty once the process is dead. Guarded
+        // against the manual-close path (which disposes the panel first → isDisposed short-circuits this) and
+        // project disposal. Fires on the reader thread → marshal to the EDT.
+        panel.onExit = {
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed || panel.isDisposed) return@invokeLater
+                runCatching { content.manager?.removeContent(content, true) }
+            }
+        }
         content.setDisposer {
             blinker.dispose()
             panel.dispose()

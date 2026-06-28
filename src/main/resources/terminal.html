@@ -33,7 +33,7 @@
      compositor — a continuous CSS animation forced Chromium to render every tick and lagged xterm. The beam is
      now a SWING overlay painted by Kotlin's BeamOverlay, which never makes Chromium render. Only the chip
      remains in CSS; it's static text, so there's no continuous animation and no perf cost.) */
-  #ccg-chip { position:fixed; top:7px; right:14px; z-index:1150; display:none; align-items:center; gap:8px;
+  #ccg-chip { position:fixed; top:7px; right:14px; z-index:1150; display:none; align-items:center; gap:5px;
     padding:3px 10px; border-radius:999px; background:var(--tg-bg,#1e1e1e);
     border:1px solid var(--tg-border,rgba(128,128,128,0.4)); color:var(--tg-fg,#eee);
     font:11px/1.4 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.12);
@@ -499,6 +499,10 @@ try {
       mEl.textContent = (c.model && s.model) ? s.model : '';
       cEl.textContent = (c.cost && s.costUsd !== undefined && s.costUsd > 0) ? ('$' + Number(s.costUsd).toFixed(3)) : '';
       xEl.textContent = (c.ctx && s.contextPct !== undefined) ? ('ctx ' + s.contextPct + '%') : '';
+      // An empty span still occupies a flex-gap slot — hide it so a disabled field leaves no phantom gap.
+      mEl.style.display = mEl.textContent ? '' : 'none';
+      cEl.style.display = cEl.textContent ? '' : 'none';
+      xEl.style.display = xEl.textContent ? '' : 'none';
       // The dot always tracks the current state; the pill itself is shown only when the chip is on AND at
       // least one enabled field has content (so all-off, or no status yet, hides it instead of a bare dot).
       chip.className = '';

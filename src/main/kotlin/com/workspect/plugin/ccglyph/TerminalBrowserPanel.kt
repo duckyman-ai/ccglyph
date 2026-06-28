@@ -78,6 +78,10 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     var onNewTab: (() -> Unit)? = null
     var onCloseTab: (() -> Unit)? = null
 
+    /** Fired once when the PTY process exits (claude Ctrl+C quit / crash / manual destroy). Wired by CCGlyphContent
+     *  to auto-close the tab. Fires on the reader thread → the handler marshals to the EDT. */
+    var onExit: (() -> Unit)? = null
+
     /** Status callback for the tab blinker (wired by CCGlyphContent); null on non-bridged sessions. */
     var onStatus: ((ClaudeState) -> Unit)? = null
     private var statusController: StatusController? = null
@@ -203,7 +207,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     init {
         // Whether the editor scheme is dark → passed to the PTY env (COLORFGBG) so TUI apps pick the right theme.
         val darkBg = isDarkColor(EditorColorsManager.getInstance().globalScheme.defaultBackground)
-        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath, launchSpec)
+        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath, launchSpec) { onExit?.invoke() }
 
         // inject sendInput and onTerminalResize after the page finishes loading.
         // Also removes the loading overlay (#tg-loading) injected by extractWebResources.
@@ -1031,7 +1035,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         /** Version of the extracted web + bridge assets. Bump every time you edit terminal.html/xterm OR the
          *  bridge scripts (ccglyph-bridge / ccglyph-bridge.cmd): both are extracted once into a temp dir keyed
          *  on this version (with a `.done` marker), so a stale version keeps serving the OLD assets. */
-        const val WEB_VERSION = "v23"
+        const val WEB_VERSION = "v25"
 
         /** Height (px) of the Swing BeamOverlay strip — matches the old CSS beam height. */
         const val BEAM_H = 6

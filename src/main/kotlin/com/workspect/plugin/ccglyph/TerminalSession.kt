@@ -14,6 +14,9 @@ class TerminalSession(
     ideShellPath: String? = null,
     /** When set, the PTY runs this resolved spec (a claude/profile session) instead of a login shell. */
     private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null,
+    /** Fired once when the PTY process exits (clean quit, crash, or session.destroy on tab close). Runs on the
+     *  reader thread — the handler must marshal to the EDT. Used by CCGlyphContent to auto-close the tab. */
+    private val onExit: () -> Unit = {},
 ) {
     private val isWindows = CCGlyphSettings.isWindows
 
@@ -178,10 +181,15 @@ class TerminalSession(
     init {
         Thread {
             val cbuf = CharArray(4096)
-            while (process.isAlive) {
-                val n = runCatching { reader.read(cbuf) }.getOrDefault(-1)
-                if (n == -1) break
-                if (n > 0) onOutput(String(cbuf, 0, n))
+            try {
+                while (process.isAlive) {
+                    val n = runCatching { reader.read(cbuf) }.getOrDefault(-1)
+                    if (n == -1) break
+                    if (n > 0) onOutput(String(cbuf, 0, n))
+                }
+            } finally {
+                // Process exited (Ctrl+C quit, crash, or session.destroy on tab close) — notify exactly once.
+                runCatching { onExit() }
             }
         }.apply {
             isDaemon = true
