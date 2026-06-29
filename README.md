@@ -2,7 +2,7 @@
 
 <p align="center"><img src="src/main/resources/META-INF/pluginIcon.svg" width="120" alt="Claude Code Glyph"></p>
 
-<p align="center"><b>A Claude Code terminal that shows what Claude is doing at a glance — thinking, running, or waiting.</b></p>
+<p align="center"><b>A Claude Code terminal for JetBrains IDEs that shows what Claude is doing at a glance — thinking, running, or waiting.</b></p>
 
 <p align="center">Runs on <b>macOS</b> and <b>Windows</b>.</p>
 
