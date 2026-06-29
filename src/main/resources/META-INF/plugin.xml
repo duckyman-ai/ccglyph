@@ -38,7 +38,12 @@
          build.gradle.kts; this <depends> puts them on the runtime classpath (without it: NoClassDefFoundError
          at TerminalBrowserPanel init). -->
     <depends>org.jetbrains.plugins.terminal</depends>
-    <depends optional="true">com.intellij.modules.jcef</depends>
+    <!-- JCEF is required (not optional): the terminal renders via xterm.js inside JCEF, so the plugin is only
+         installable on IDEs that have the JCEF module — IntelliJ Ultimate / pro IDEs / Android Studio 2026.1.1+
+         (with the "Web Browser (JCEF)" plugin). Keeps the Marketplace verifier happy (no optional-without-
+         config-file warning) and surfaces the requirement at install time. The runtime JBCefApp.isSupported()
+         guard in CCGlyphTerminalFactory stays as a defensive check. -->
+    <depends>com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow
