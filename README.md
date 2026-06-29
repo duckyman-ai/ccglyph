@@ -1,6 +1,6 @@
 # CCGlyph
 
-<p align="center"><img src="src/main/resources/pluginIcon.svg" width="120" alt="CCGlyph"></p>
+<p align="center"><img src="src/main/resources/META-INF/pluginIcon.svg" width="120" alt="CCGlyph"></p>
 
 <p align="center"><b>A terminal tool window for IntelliJ-based IDEs that renders Claude Code cleanly — no overlapping, hard-to-read text — and handles complex scripts (Thai, emoji) correctly.</b></p>
 
@@ -101,6 +101,7 @@ If these render with no extra spacing → it's working. ✅
 ## Limitations
 
 - **Remote Development / JetBrains Gateway / SSH / dev-containers:** **not supported** — CCGlyph is **desktop-only**. Its terminal UI (xterm.js in JCEF) is a heavyweight component that renders only on the local machine, so it can't be sent over the Remote Development frontend/backend link. Use the IDE's built-in terminal for remote sessions.
+- **Active tab colour on the New UI / Islands theme** — the colour-changing tab effect uses the platform's `setTabColor`, which the IntelliJ **New UI** (including the new **Islands** theme) renders only on **inactive** tabs. The currently selected/active tab ignores it — a known platform limitation, not a CCGlyph bug. In practice this is fine: an inactive tab still blinks to draw your attention back, and when the tab is active the **beam** across the top already shows the state. There is no supported API to force the active tab to render a custom colour.
 
 ## For plugin developers
 
