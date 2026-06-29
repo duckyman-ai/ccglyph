@@ -2,12 +2,12 @@
     <id>com.workspect.plugin.ccglyph</id>
     <name>Claude Code Glyph</name>
     <version>1.0.0</version>
-    <vendor url="https://github.com/workspect/ccglyph">Workspect</vendor>
+    <vendor url="https://github.com/duckyman-ai/ccglyph">Duckyman</vendor>
 
     <description><![CDATA[
         A terminal tool window purpose-built for <b>Claude Code</b> in IntelliJ-based IDEs &mdash; forked from TermGlyph.<br/><br/>
-        It renders Claude Code cleanly (no overlapping text) via <b>xterm.js 6 (Unicode 11)</b> in the IDE's JCEF browser,
-        handles Thai/emoji/CJK correctly, and adds Claude-Code-specific power features:
+        It renders Claude Code cleanly (no overlapping text) via <b>xterm.js 6 (Unicode 11)</b> in the IDE's JCEF browser
+        and adds Claude-Code-specific power features:
         <ul>
         <li><b>Profiles</b> &mdash; start each session from a chosen <code>settings.json</code> with model, permission-mode,
             env and isolated config-dir overrides. Pick from the New-Session popup on the <b>+</b> button.</li>
