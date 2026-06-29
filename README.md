@@ -8,6 +8,8 @@
 
 <p align="center"><img src="docs/images/thinking.gif" width="640" alt="Claude Code Glyph — thinking / running a tool"><br><sub>Thinking / running a tool</sub></p>
 
+<br>
+
 <p align="center"><img src="docs/images/waiting.gif" width="640" alt="Claude Code Glyph — waiting for permission"><br><sub>Waiting for input</sub></p>
 
 Claude Code Glyph runs [xterm.js](https://xtermjs.org/) 6 inside the IDE's **JCEF** (Chromium Embedded) browser. xterm.js counts terminal columns precisely, so Claude Code's input box, borders, and dense output render cleanly — without the overlap and drift a column-imprecise terminal causes.
