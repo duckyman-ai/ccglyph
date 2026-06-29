@@ -6,11 +6,11 @@
 
 <p align="center">Runs on <b>macOS</b> and <b>Windows</b>.</p>
 
-<p align="center">
-  <img src="docs/images/thinking.gif" width="360" alt="Claude Code Glyph — thinking / running a tool">
-  <img src="docs/images/waiting.gif" width="360" alt="Claude Code Glyph — waiting for permission">
-</p>
-<p align="center"><sub>Left: thinking / running a tool &nbsp;·&nbsp; Right: waiting for permission</sub></p>
+<p align="center"><img src="docs/images/thinking.gif" width="640" alt="Claude Code Glyph — thinking / running a tool"></p>
+<p align="center"><sub>Thinking / running a tool</sub></p>
+
+<p align="center"><img src="docs/images/waiting.gif" width="640" alt="Claude Code Glyph — waiting for permission"></p>
+<p align="center"><sub>Waiting for permission</sub></p>
 
 Claude Code Glyph runs [xterm.js](https://xtermjs.org/) 6 inside the IDE's **JCEF** (Chromium Embedded) browser. xterm.js counts terminal columns precisely, so Claude Code's input box, borders, and dense output render cleanly — without the overlap and drift a column-imprecise terminal causes.
 
@@ -88,7 +88,7 @@ Built with the [IntelliJ Platform Gradle Plugin 2.x](https://plugins.jetbrains.c
 
 ## License
 
-[MIT License](LICENSE) — © 2026 Workspect. Forked from [TermGlyph](https://github.com/duckyman-ai/termglyph) (© 2026 Duckyman, MIT).
+[MIT License](LICENSE) — © 2026 Duckyman. Forked from [TermGlyph](https://github.com/duckyman-ai/termglyph) (© 2026 Duckyman, MIT).
 
 ---
 
