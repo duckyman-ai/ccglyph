@@ -4,10 +4,19 @@
             <stop offset="0%" stop-color="#5CB3FF"/>
             <stop offset="100%" stop-color="#C88AFF"/>
         </linearGradient>
+        <!-- Mascot gradient: same blue→purple stops as the frame, but in the mascot's 512-space so the body
+             and beak-fill share ONE aligned gradient despite the scale() on the group (no seam between them). -->
+        <linearGradient id="ccgGradMascot" gradientUnits="userSpaceOnUse" x1="64" y1="84" x2="448" y2="428">
+            <stop offset="0%" stop-color="#5CB3FF"/>
+            <stop offset="100%" stop-color="#C88AFF"/>
+        </linearGradient>
     </defs>
-    <rect x="2" y="3.5" width="20" height="17" rx="3" fill="none" stroke="url(#ccgGrad)" stroke-width="2"/>
-    <g transform="translate(6.5, 7) scale(0.55)" fill="#D97757" fill-rule="evenodd">
-        <path clip-rule="evenodd"
-              d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"/>
+    <rect x="1" y="2.65" width="22" height="18.7" rx="3" fill="none" stroke="url(#ccgGrad)" stroke-width="1.5"/>
+    <!-- Duckyman pixel mascot. The former black shapes (eyes + beak outline) are folded into the body path
+         as extra subpaths with fill-rule=evenodd → they become see-through holes. The beak-fill stays as a
+         gradient core over the beak hole, so the beak keeps its shape framed by a transparent ring. -->
+    <g transform="translate(1.5, 1.5) scale(0.041)" shape-rendering="crispEdges">
+        <path fill="url(#ccgGradMascot)" fill-rule="evenodd" d="M224 84H288V116H320V148H352V180H384V236H416V268H448V332H416V364H384V396H352V428H288V396H224V428H160V396H128V364H96V332H64V268H96V236H128V180H160V148H192V116H224V84Z M176 236H208V300H176Z M304 236H336V300H304Z M224 300H288V316H304V348H288V364H224V348H208V316H224V300Z"/>
+        <rect x="224" y="324" width="64" height="24" fill="url(#ccgGradMascot)"/>
     </g>
 </svg>
