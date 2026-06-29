@@ -1035,7 +1035,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         /** Version of the extracted web + bridge assets. Bump every time you edit terminal.html/xterm OR the
          *  bridge scripts (ccglyph-bridge / ccglyph-bridge.cmd): both are extracted once into a temp dir keyed
          *  on this version (with a `.done` marker), so a stale version keeps serving the OLD assets. */
-        const val WEB_VERSION = "v25"
+        const val WEB_VERSION = "v26"
 
         /** Height (px) of the Swing BeamOverlay strip — matches the old CSS beam height. */
         const val BEAM_H = 6

@@ -43,7 +43,15 @@
   #ccg-chip.tool .ccg-dot { background:#38bdf8; box-shadow:0 0 7px #38bdf8; }
   #ccg-chip.wait .ccg-dot { background:#fbbf24; box-shadow:0 0 7px #fbbf24; }
   #ccg-chip.idle .ccg-dot { background:#34d399; }
-  #ccg-chip .ccg-cost, #ccg-chip .ccg-ctx { color:var(--tg-border,rgba(128,128,128,0.75)); }
+  #ccg-chip .ccg-cost { color:var(--tg-border,rgba(128,128,128,0.75)); }
+  /* Context fill shown as a circular gauge (ring + %): fills clockwise as the window is used, and shifts
+     blue → amber → red near the limit. NOT a CSS animation — only the stroke dashoffset updates when
+     contextPct changes, so it costs nothing while idle (a continuous CSS animation would lag xterm here). */
+  #ccg-chip .ccg-ctx { display:inline-flex; align-items:center; gap:4px; }
+  #ccg-chip .ccg-ring { display:block; }
+  #ccg-chip .ccg-ring-track { fill:none; stroke:var(--tg-border,rgba(128,128,128,0.35)); stroke-width:1.6; }
+  #ccg-chip .ccg-ring-fill { fill:none; stroke:#38bdf8; stroke-width:1.6; stroke-linecap:round; transition:stroke-dashoffset .2s, stroke .2s; }
+  #ccg-chip .ccg-ctx-num { color:var(--tg-border,rgba(128,128,128,0.85)); font-variant-numeric:tabular-nums; }
 #tg-loading { transition: opacity 0.15s; }
 <!--TG_FONTS-->
 </style>
@@ -481,9 +489,10 @@ try {
 (function () {
   try {
     var chip = document.createElement('div'); chip.id = 'ccg-chip';
-    chip.innerHTML = '<span class="ccg-dot"></span><span class="ccg-model"></span><span class="ccg-cost"></span><span class="ccg-ctx"></span>';
+    chip.innerHTML = '<span class="ccg-dot"></span><span class="ccg-model"></span><span class="ccg-cost"></span><span class="ccg-ctx"><svg class="ccg-ring" width="13" height="13" viewBox="0 0 13 13"><circle class="ccg-ring-track" cx="6.5" cy="6.5" r="5"/><circle class="ccg-ring-fill" cx="6.5" cy="6.5" r="5" transform="rotate(-90 6.5 6.5)"/></svg><span class="ccg-ctx-num"></span></span>';
     document.body.appendChild(chip);
     var mEl = chip.querySelector('.ccg-model'), cEl = chip.querySelector('.ccg-cost'), xEl = chip.querySelector('.ccg-ctx');
+    var xRing = chip.querySelector('.ccg-ring-fill'), xNum = chip.querySelector('.ccg-ctx-num');
     var cls = { THINKING:'think', TOOL_RUNNING:'tool', WAITING_PERMISSION:'wait', WAITING_INPUT:'wait', IDLE:'idle', ERROR:'wait' };
 
     function cfg() {
@@ -498,11 +507,25 @@ try {
       var c = cfg(), s = lastSnap || {};
       mEl.textContent = (c.model && s.model) ? s.model : '';
       cEl.textContent = (c.cost && s.costUsd !== undefined && s.costUsd > 0) ? ('$' + Number(s.costUsd).toFixed(3)) : '';
-      xEl.textContent = (c.ctx && s.contextPct !== undefined) ? ('ctx ' + s.contextPct + '%') : '';
+      // Context gauge: a circular ring whose fill = % of the window used (fills clockwise from 12 o'clock).
+      // The stroke dashoffset encodes the value; tier colour blue → amber → red warns near the limit. No value
+      // → hide the span and clear the number (keeps the `has` check below correct and leaves no phantom gap).
+      var xp = (c.ctx && s.contextPct !== undefined && s.contextPct !== null)
+        ? Math.max(0, Math.min(100, Number(s.contextPct) || 0)) : null;
+      if (xp !== null) {
+        var C = 2 * Math.PI * 5;  // ring radius = 5 → circumference ≈ 31.42
+        xRing.setAttribute('stroke-dasharray', C.toFixed(2));
+        xRing.setAttribute('stroke-dashoffset', (C * (1 - xp / 100)).toFixed(2));
+        xRing.style.stroke = xp >= 90 ? '#ef4444' : (xp >= 70 ? '#fbbf24' : '#38bdf8');
+        xNum.textContent = Math.round(xp) + '%';
+        xEl.style.display = '';
+      } else {
+        xNum.textContent = '';
+        xEl.style.display = 'none';
+      }
       // An empty span still occupies a flex-gap slot — hide it so a disabled field leaves no phantom gap.
       mEl.style.display = mEl.textContent ? '' : 'none';
       cEl.style.display = cEl.textContent ? '' : 'none';
-      xEl.style.display = xEl.textContent ? '' : 'none';
       // The dot always tracks the current state; the pill itself is shown only when the chip is on AND at
       // least one enabled field has content (so all-off, or no status yet, hides it instead of a bare dot).
       chip.className = '';
