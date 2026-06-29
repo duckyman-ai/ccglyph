@@ -31,3 +31,9 @@ hs_err_pid*
 
 # Local reference screenshots (not plugin source)
 /Screenshot*.png
+
+# Node / Python — this is a Kotlin plugin; stray JS/Python tooling is never source
+node_modules/
+package.json
+package-lock.json
+.venv/
