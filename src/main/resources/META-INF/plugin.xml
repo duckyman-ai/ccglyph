@@ -5,7 +5,7 @@
     <vendor url="https://github.com/duckyman-ai/ccglyph">Duckyman</vendor>
 
     <description><![CDATA[
-        A terminal tool window purpose-built for <b>Claude Code</b> in IntelliJ-based IDEs &mdash; forked from TermGlyph.<br/><br/>
+        A <b>Claude Code</b> terminal for JetBrains IDEs that shows what Claude is doing at a glance &mdash; thinking, running, or waiting.<br/><br/>
         It renders Claude Code cleanly (no overlapping text) via <b>xterm.js 6 (Unicode 11)</b> in the IDE's JCEF browser
         and adds Claude-Code-specific power features:
         <ul>
@@ -19,7 +19,8 @@
         <li>Clean rendering, <b>Find</b> (Cmd/Ctrl+F), copy/paste, native side-by-side split, tab icons/titles that follow
             the running process, and IDE-theme following.</li>
         </ul>
-        Works wherever the <b>Web Browser (JCEF)</b> plugin is available (IntelliJ IDEA Ultimate and most professional IDEs).
+        Works wherever the <b>Web Browser (JCEF)</b> plugin is available (IntelliJ IDEA Ultimate and most professional IDEs).<br/><br/>
+        <i>Forked from TermGlyph.</i>
     ]]></description>
 
     <change-notes><![CDATA[
