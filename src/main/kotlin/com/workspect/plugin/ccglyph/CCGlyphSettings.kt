@@ -34,7 +34,6 @@ class CCGlyphSettings : PersistentStateComponent<CCGlyphSettings.State> {
         var chipShowCost: Boolean = false,          // OFF by default — total_cost_usd is Claude Code's Anthropic-priced
                                                     //   estimate, wrong when routing to a non-Anthropic model
         var chipShowContext: Boolean = true,
-        var dismissWaitingOnInput: Boolean = true,  // clear the WAITING effect as soon as the user types
     )
 
     private var myState = State()

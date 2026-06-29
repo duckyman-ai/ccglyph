@@ -50,7 +50,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var chipModelCb: JCheckBox
     private lateinit var chipCostCb: JCheckBox
     private lateinit var chipCtxCb: JCheckBox
-    private lateinit var dismissCb: JCheckBox
     private lateinit var updateCb: JCheckBox
 
     override fun getId(): String = "ccglyph.settings"
@@ -117,7 +116,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipModelCb = JCheckBox("Model", s.chipShowModel)
         chipCostCb = JCheckBox("Cost (USD)", s.chipShowCost)
         chipCtxCb = JCheckBox("Context %", s.chipShowContext)
-        dismissCb = JCheckBox("Clear the waiting effect when I start typing", s.dismissWaitingOnInput)
         updateCb = JCheckBox("Update Claude Code before starting a session", s.updateClaudeBeforeStart)
         // "Show in chip" sub-options only matter when the chip is on — grey them out when it's off.
         chipCb.addItemListener { syncChipSubEnabled() }
@@ -143,7 +141,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
                     add(chipModelCb); add(chipCostCb); add(chipCtxCb)
                 })
             }
-            row { cell(dismissCb) }
             section("Profiles")
             row { cell(profiles.createComponent()).align(AlignX.FILL).resizableColumn() }
         }
@@ -178,7 +175,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
             chipModelCb.isSelected != s.chipShowModel ||
             chipCostCb.isSelected != s.chipShowCost ||
             chipCtxCb.isSelected != s.chipShowContext ||
-            dismissCb.isSelected != s.dismissWaitingOnInput ||
             updateCb.isSelected != s.updateClaudeBeforeStart
     }
 
@@ -204,7 +200,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         s.chipShowModel = chipModelCb.isSelected
         s.chipShowCost = chipCostCb.isSelected
         s.chipShowContext = chipCtxCb.isSelected
-        s.dismissWaitingOnInput = dismissCb.isSelected
         s.updateClaudeBeforeStart = updateCb.isSelected
         // Live-reload: push new config to all open terminal tabs immediately (no restart needed).
         settings.notifySettingsChanged()
@@ -225,7 +220,6 @@ class CCGlyphSettingsConfigurable : SearchableConfigurable {
         chipModelCb.isSelected = s.chipShowModel
         chipCostCb.isSelected = s.chipShowCost
         chipCtxCb.isSelected = s.chipShowContext
-        dismissCb.isSelected = s.dismissWaitingOnInput
         updateCb.isSelected = s.updateClaudeBeforeStart
         syncChipSubEnabled()
     }

@@ -122,9 +122,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             // Optimistic clear: the WAITING effect is an attention signal, so once the user starts responding
             // (any input keystroke / paste) flip to IDLE locally instead of waiting for the UserPromptSubmit /
             // permission-decision hook. Suppressed again on the next real (non-WAITING) state — see onUpdate.
-            if (input.isNotEmpty() && !waitingDismissed && lastStatusState?.isWaiting == true &&
-                CCGlyphSettings.getInstance().state.dismissWaitingOnInput
-            ) {
+            if (input.isNotEmpty() && !waitingDismissed && lastStatusState?.isWaiting == true) {
                 waitingDismissed = true
                 val snap = lastSnapshot
                 ApplicationManager.getApplication().invokeLater {
