@@ -3,10 +3,10 @@ package com.workspect.plugin.ccglyph.profile
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionToolbarPosition
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.ui.AnActionButton
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.table.JBTable
 import com.workspect.plugin.ccglyph.CCGlyphContent
@@ -31,12 +31,21 @@ class ProfilesConfigurable : SearchableConfigurable {
     override fun createComponent(): JPanel {
         table = JBTable(tableModel).apply {
             isStriped = true
-            autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+            // SUBSEQUENT_COLUMNS (not LAST_COLUMN): the last column (ENV) only shows "N vars" and is capped
+            // narrow below — under LAST_COLUMN it would balloon to absorb all spare width. Extra width now
+            // flows to the uncapped columns (Name / Settings JSON), so the table still fills the panel.
+            autoResizeMode = JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS
             rowHeight = 24
-            preferredScrollableViewportSize = java.awt.Dimension(720, 160)
-            // First column = the profile's tab icon (rendered via getColumnClass → Icon); keep it narrow + centred.
+            preferredScrollableViewportSize = java.awt.Dimension(625, 130)
+            // Icon (col 0) — the profile's tab icon; narrow + fixed.
             columnModel.getColumn(0).preferredWidth = 44
             columnModel.getColumn(0).maxWidth = 52
+            // Model (col 2) — cap slightly narrower than its natural auto width.
+            columnModel.getColumn(2).preferredWidth = 120
+            columnModel.getColumn(2).maxWidth = 150
+            // ENV (col 4) — only shows "N vars"; cap ~half of its old fill width so it stops ballooning.
+            columnModel.getColumn(4).preferredWidth = 90
+            columnModel.getColumn(4).maxWidth = 110
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) { if (e.clickCount >= 2) editSelected() }
             })
@@ -50,9 +59,9 @@ class ProfilesConfigurable : SearchableConfigurable {
             .setAddAction { addProfile() }
             .setEditAction { editSelected() }
             .setRemoveAction { removeSelected() }
-            .addExtraAction(object : AnActionButton("Duplicate", AllIcons.Actions.Copy) {
-                init { addCustomUpdater { table.selectedRow >= 0 } }
+            .addExtraAction(object : AnAction("Duplicate", "Duplicate the selected profile", AllIcons.Actions.Copy) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = table.selectedRow >= 0 }
                 override fun actionPerformed(e: AnActionEvent) = duplicateSelected()
             })
             .createPanel()
@@ -99,7 +108,7 @@ class ProfilesConfigurable : SearchableConfigurable {
     }
 
     private class ProfileTableModel : AbstractTableModel() {
-        private val cols = arrayOf("Icon", "Name", "Model", "Settings JSON", "Env")
+        private val cols = arrayOf("Icon", "Name", "Model", "Settings JSON", "ENV")
         private fun list() = ProfileService.getInstance().profiles()
         override fun getRowCount() = list().size
         override fun getColumnCount() = cols.size
