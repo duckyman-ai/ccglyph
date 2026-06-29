@@ -2,7 +2,7 @@
 
 <p align="center"><img src="src/main/resources/META-INF/pluginIcon.svg" width="120" alt="Claude Code Glyph"></p>
 
-<p align="center"><b>A terminal tool window for IntelliJ-based IDEs that renders Claude Code cleanly, and reflects its live status in the tab and a status chip.</b></p>
+<p align="center"><b>A Claude Code terminal that shows what Claude is doing at a glance — thinking, running, or waiting.</b></p>
 
 <p align="center">Runs on <b>macOS</b> and <b>Windows</b>.</p>
 
