@@ -6,7 +6,11 @@
 
 <p align="center">Runs on <b>macOS</b> and <b>Windows</b>.</p>
 
-<p align="center"><img src="docs/images/screenshot.png" width="720" alt="Claude Code Glyph — Claude Code in a terminal tab"></p>
+<p align="center">
+  <video src="docs/images/thinking.mp4" width="360" controls autoplay loop muted playsinline></video>
+  <video src="docs/images/waiting.mp4" width="360" controls autoplay loop muted playsinline></video>
+</p>
+<p align="center"><sub>Left: thinking / running a tool &nbsp;·&nbsp; Right: waiting for permission</sub></p>
 
 Claude Code Glyph runs [xterm.js](https://xtermjs.org/) 6 inside the IDE's **JCEF** (Chromium Embedded) browser. xterm.js counts terminal columns precisely, so Claude Code's input box, borders, and dense output render cleanly — without the overlap and drift a column-imprecise terminal causes.
 
