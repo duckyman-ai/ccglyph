@@ -95,7 +95,12 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
                     // open one via the "+" button, and the tab-close itself completes cleanly.
                     ApplicationManager.getApplication().invokeLater {
                         if (project.isDisposed) return@invokeLater
-                        runCatching { createTerminalContent(toolWindow.contentManager, toolWindow, project) }
+                        // Reopen as a Claude session (the plugin's purpose), NOT the user's "+" preference —
+                        // otherwise closing the last tab reopens a plain shell and the tool window then sits
+                        // on an empty shell instead of Claude the next time it's opened. Plain shells stay
+                        // an explicit choice via the "+" button (see plusSpec).
+                        val reopenWorkDir = project.basePath ?: System.getProperty("user.home")
+                        runCatching { createTerminalContent(toolWindow.contentManager, toolWindow, project, CCGlyphContent.defaultClaudeSpec(project, reopenWorkDir)) }
                     }
                 }
             }
@@ -140,9 +145,9 @@ class CCGlyphTerminalFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(content)
     }
 
-    /** What the "+" / reopen / in-tab new-tab paths open — the user's preference (a Claude session by
-     *  default, or a plain shell). The FIRST tab always opens a Claude session regardless (see
-     *  createToolWindowContent), as do explicit popup/profile specs. */
+    /** What the "+" / in-tab new-tab paths open — the user's preference (a Claude session by default,
+     *  or a plain shell). The FIRST tab AND the auto-reopen (closing the last tab) always open a Claude
+     *  session regardless (see createToolWindowContent + contentRemoved), as do explicit popup specs. */
     private fun plusSpec(project: Project, workDir: String): LaunchSpec =
         if (CCGlyphSettings.getInstance().state.plusOpensPlainShell) SessionLauncher.plainShell(workDir)
         else CCGlyphContent.defaultClaudeSpec(project, workDir)
