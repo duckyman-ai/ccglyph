@@ -47,6 +47,8 @@ It's a *companion* to the IDE's built-in terminal — that one stays fully avail
 
 The beam and tab are independent toggles in Settings.
 
+> **New UI / Islands theme:** the tab colour renders only on **inactive** tabs (a platform limit, not a CCGlyph bug). When a tab is active, the beam across the top still shows the state.
+
 ## Requirements
 
 Claude Code Glyph renders through **JCEF**, bundled with some IDEs and optional on others.
