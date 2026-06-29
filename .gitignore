@@ -35,5 +35,8 @@ hs_err_pid*
 # Node / Python — this is a Kotlin plugin; stray JS/Python tooling is never source
 node_modules/
 package.json
-package-lock.json
+*-lock.json
 .venv/
+
+.claude/
+.agents/
