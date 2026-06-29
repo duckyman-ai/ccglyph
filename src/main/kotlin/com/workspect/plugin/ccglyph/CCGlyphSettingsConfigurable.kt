@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.fileChooser.FileChooser
@@ -6,15 +6,22 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.ui.TitledSeparator
+import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.util.ui.FormBuilder
+import com.workspect.plugin.ccglyph.profile.ProfilesConfigurable
 import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
+import javax.swing.BorderFactory
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JSpinner
@@ -22,10 +29,12 @@ import javax.swing.ListCellRenderer
 import javax.swing.SpinnerNumberModel
 import kotlin.math.roundToInt
 
-/** Settings → Tools → TermGlyph */
-class TermGlyphSettingsConfigurable : SearchableConfigurable {
+/** Settings → Tools → CCGlyph */
+class CCGlyphSettingsConfigurable : SearchableConfigurable {
 
-    private val settings = TermGlyphSettings.getInstance()
+    private val settings = CCGlyphSettings.getInstance()
+    /** Profiles table — embedded on this page (live-edited; changes save immediately). */
+    private val profiles = ProfilesConfigurable()
 
     private lateinit var fontCombo: ComboBox<String>
     private lateinit var fallbackCombo: ComboBox<String>
@@ -33,41 +42,45 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
     private lateinit var lineHeightSpinner: JSpinner
     private lateinit var letterSpacingSpinner: JSpinner
     private lateinit var shellCombo: ComboBox<String>
-    private lateinit var scrollbackSpinner: JSpinner
-    private lateinit var cursorCombo: ComboBox<String>
+    private lateinit var plusModeCombo: ComboBox<String>
+    // Status chip & effects (global — apply to every profile/session, see CCGlyphSettings.State).
+    private lateinit var beamCb: JCheckBox
+    private lateinit var tabCb: JCheckBox
+    private lateinit var chipCb: JCheckBox
+    private lateinit var chipModelCb: JCheckBox
+    private lateinit var chipCostCb: JCheckBox
+    private lateinit var chipCtxCb: JCheckBox
+    private lateinit var updateCb: JCheckBox
 
-    override fun getId(): String = "termglyph.settings"
-    override fun getDisplayName(): String = "TermGlyph"
+    override fun getId(): String = "ccglyph.settings"
+    override fun getDisplayName(): String = "Claude Code Glyph"
 
     override fun createComponent(): JComponent {
         val s = settings.state
         // Prepend the default font and "monospace" (guarantees that JetBrains Mono is in the list
         // even when the system does not register it as a family), then append every system font alphabetically.
         val sysFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.sorted()
-        val fontList = (linkedSetOf(TermGlyphSettings.DEFAULT_FONT, "monospace") + sysFonts).toTypedArray()
-        // Each font name is rendered in its own font (like the IDE's editor font picker) so the user can
-        // preview the typeface while choosing. Names not registered as families (e.g. "monospace") fall back
-        // to the default UI font.
+        val fontList = (linkedSetOf(CCGlyphSettings.DEFAULT_FONT, "monospace") + sysFonts).toTypedArray()
         val fontPreview = fontPreviewRenderer()
         fontCombo = ComboBox(fontList).apply {
             renderer = fontPreview
-            selectedItem = s.fontFamily.takeIf { it in fontList } ?: TermGlyphSettings.DEFAULT_FONT
+            selectedItem = s.fontFamily.takeIf { it in fontList } ?: CCGlyphSettings.DEFAULT_FONT
         }
         // Show the effective value for the "follow IDE" sentinels (fontSize=0 / fallbackFont="") so the
         // user sees what's in use, and Apply stays disabled if left unchanged (preserving follow).
         // lineHeight & letterSpacing are plain xterm values (no IDE source).
-        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: TermGlyphSettings.editorFallbackFont()
-        val effFontSize = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: CCGlyphSettings.editorFallbackFont()
+        val effFontSize = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         fallbackCombo = ComboBox(fontList).apply {
             renderer = fontPreview
-            selectedItem = effFallback.takeIf { it in fontList } ?: TermGlyphSettings.editorFontFamily()
+            selectedItem = effFallback.takeIf { it in fontList } ?: CCGlyphSettings.editorFontFamily()
         }
         sizeSpinner = JSpinner(SpinnerNumberModel(effFontSize, 6, 72, 1))
         lineHeightSpinner = JSpinner(SpinnerNumberModel(s.lineHeight, 1.0, 3.0, 0.1))
         letterSpacingSpinner = JSpinner(SpinnerNumberModel(s.letterSpacing, 0.0, 8.0, 0.5))
-        scrollbackSpinner = JSpinner(SpinnerNumberModel(s.scrollback, 0, 1_000_000, 1000))
-        cursorCombo = ComboBox(arrayOf("block", "underline", "bar")).apply {
-            selectedItem = s.cursorStyle
+        // What the "+" button opens (also reopen / in-tab new-tab). The first tab is always a Claude session.
+        plusModeCombo = ComboBox(arrayOf("Claude session", "Plain terminal")).apply {
+            selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
         }
         // Shell is an editable dropdown populated with common shells that are actually executable on this
         // system, plus the IDE's own terminal shell setting so it's always selectable.
@@ -80,14 +93,13 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
             maxOf(fontCombo.preferredSize.width * 2, 400), shellCombo.preferredSize.height
         )
 
-        // The ⋯ button (More Horizontal) opens a file chooser to select the shell executable; on macOS it starts at /usr/bin.
-        // Width is just enough for the icon plus a little padding; height matches the dropdown so the row aligns nicely.
+        // ⋯ opens a file chooser for the shell executable (starts at /usr/bin on macOS). Extra horizontal
+        // padding makes the small icon easier to hit.
         val browseIcon = AllIcons.Actions.MoreHorizontal
         val browseButton = JButton(browseIcon).apply {
             toolTipText = "Browse for shell executable..."
             isFocusPainted = false
-            margin = java.awt.Insets(0, 0, 0, 0)
-            preferredSize = java.awt.Dimension(browseIcon.iconWidth + 4, fontCombo.preferredSize.height)
+            margin = java.awt.Insets(2, 10, 2, 10)
             addActionListener {
                 val desc = FileChooserDescriptor(true, false, false, false, false, false)
                     .withTitle("Select Shell")
@@ -98,43 +110,72 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
             }
         }
 
+        beamCb = JCheckBox("Gradient beam", s.beamEnabled)
+        tabCb = JCheckBox("Tab color", s.tabColorEnabled)
+        chipCb = JCheckBox("Show status chip", s.showStatusChip)
+        chipModelCb = JCheckBox("Model", s.chipShowModel)
+        chipCostCb = JCheckBox("Cost (USD)", s.chipShowCost)
+        chipCtxCb = JCheckBox("Context %", s.chipShowContext)
+        updateCb = JCheckBox("Update Claude Code before starting a session", s.updateClaudeBeforeStart)
+        // "Show in chip" sub-options only matter when the chip is on — grey them out when it's off.
+        chipCb.addItemListener { syncChipSubEnabled() }
+        syncChipSubEnabled()
+
+        // Inline cells keep UI DSL's label column and baselines aligned; section headers go through section().
         return panel {
-            // Font + Fallback share a single row without FILL → use equal preferred widths (same content).
-            row("Font:") {
-                cell(fontCombo)
-                label("Fallback:")
-                cell(fallbackCombo)
+            section("Terminal")
+            row("Font:") { cell(fontCombo); label("Fallback:"); cell(fallbackCombo) }
+            row("Font size:") { cell(sizeSpinner); label("Line height:"); cell(lineHeightSpinner); label("Spacing (px):"); cell(letterSpacingSpinner) }
+            row("Shell:") { cell(shellCombo); cell(browseButton) }
+            section("Claude Code")
+            row("New tab (+) opens:") { cell(plusModeCombo) }
+            row { cell(updateCb) }
+            section("Status & Effects")
+            row("Effects:") { cell(beamCb); cell(tabCb) }
+            row { cell(chipCb) }
+            // "Show in chip" sits under "Show status chip" — nest it in a left-padded panel so it reads as a sub-row.
+            row {
+                cell(javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 28, 0)).apply {
+                    border = BorderFactory.createEmptyBorder(0, 20, 0, 0)
+                    add(javax.swing.JLabel("Show in chip:"))
+                    add(chipModelCb); add(chipCostCb); add(chipCtxCb)
+                })
             }
-            // Font size + Line height + Letter spacing share a single row.
-            row("Font size:") {
-                cell(sizeSpinner)
-                label("Line height:")
-                cell(lineHeightSpinner)
-                label("Spacing (px):")
-                cell(letterSpacingSpinner)
-            }
-            // theme was removed → always use the IDE editor color scheme.
-            row("Shell:") {
-                cell(shellCombo)
-                cell(browseButton)
-            }
-            row("Scrollback (lines):") { cell(scrollbackSpinner) }
-            row("Cursor style:") { cell(cursorCombo) }
+            section("Profiles")
+            row { cell(profiles.createComponent()).align(AlignX.FILL).resizableColumn() }
+        }
+    }
+
+    /** Section header = TitledSeparator. A bare TitledSeparator in a UI DSL cell collapses to no rule, so wrap it
+     *  in a FormBuilder panel (GridBagLayout fill=HORIZONTAL grows the rule). A wide preferredSize makes the rule
+     *  render immediately; an uncapped maximumSize + align(FILL)+resizableColumn stretches it to the dialog width. */
+    private fun Panel.section(title: String) {
+        row {
+            val header = FormBuilder.createFormBuilder().addComponent(TitledSeparator(title)).panel
+            header.preferredSize = Dimension(625, header.preferredSize.height)
+            header.maximumSize = Dimension(Int.MAX_VALUE, header.preferredSize.height)
+            cell(header).align(AlignX.FILL).resizableColumn()
         }
     }
 
     override fun isModified(): Boolean {
         val s = settings.state
-        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: TermGlyphSettings.editorFallbackFont()
-        val effFontSize = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: CCGlyphSettings.editorFallbackFont()
+        val effFontSize = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         return fontCombo.selectedItem != s.fontFamily ||
             fallbackCombo.selectedItem != effFallback ||
             sizeSpinner.value != effFontSize ||
             round1((lineHeightSpinner.value as Number).toDouble()) != round1(s.lineHeight) ||
             round1((letterSpacingSpinner.value as Number).toDouble()) != round1(s.letterSpacing) ||
             (shellCombo.selectedItem as? String) != s.shellPath ||
-            scrollbackSpinner.value != s.scrollback ||
-            cursorCombo.selectedItem != s.cursorStyle
+            (plusModeCombo.selectedItem == "Plain terminal") != s.plusOpensPlainShell ||
+            beamCb.isSelected != s.beamEnabled ||
+            tabCb.isSelected != s.tabColorEnabled ||
+            chipCb.isSelected != s.showStatusChip ||
+            chipModelCb.isSelected != s.chipShowModel ||
+            chipCostCb.isSelected != s.chipShowCost ||
+            chipCtxCb.isSelected != s.chipShowContext ||
+            updateCb.isSelected != s.updateClaudeBeforeStart
     }
 
     override fun apply() {
@@ -142,18 +183,24 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
         s.fontFamily = fontCombo.selectedItem as String
         // For the "follow IDE" fields, keep the sentinel (0 / "") when the user left the value at its
         // effective default — so changing an unrelated setting doesn't lock these to a concrete value.
-        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: TermGlyphSettings.editorFallbackFont()
+        val effFallback = s.fallbackFont.takeIf { it.isNotBlank() } ?: CCGlyphSettings.editorFallbackFont()
         val newFallback = fallbackCombo.selectedItem as String
         s.fallbackFont = if (newFallback == effFallback) s.fallbackFont else newFallback
-        val effFontSize = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        val effFontSize = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         val newSize = (sizeSpinner.value as Number).toInt()
         s.fontSize = if (newSize == effFontSize) s.fontSize else newSize
         s.lineHeight = round1((lineHeightSpinner.value as Number).toDouble())
         s.letterSpacing = round1((letterSpacingSpinner.value as Number).toDouble())
-        s.shellPath = (shellCombo.selectedItem as? String)?.trim()?.ifBlank { TermGlyphSettings.defaultShell() }
-            ?: TermGlyphSettings.defaultShell()
-        s.scrollback = (scrollbackSpinner.value as Number).toInt()
-        s.cursorStyle = cursorCombo.selectedItem as String
+        s.shellPath = (shellCombo.selectedItem as? String)?.trim()?.ifBlank { CCGlyphSettings.defaultShell() }
+            ?: CCGlyphSettings.defaultShell()
+        s.plusOpensPlainShell = plusModeCombo.selectedItem == "Plain terminal"
+        s.beamEnabled = beamCb.isSelected
+        s.tabColorEnabled = tabCb.isSelected
+        s.showStatusChip = chipCb.isSelected
+        s.chipShowModel = chipModelCb.isSelected
+        s.chipShowCost = chipCostCb.isSelected
+        s.chipShowContext = chipCtxCb.isSelected
+        s.updateClaudeBeforeStart = updateCb.isSelected
         // Live-reload: push new config to all open terminal tabs immediately (no restart needed).
         settings.notifySettingsChanged()
     }
@@ -161,13 +208,28 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
     override fun reset() {
         val s = settings.state
         fontCombo.selectedItem = s.fontFamily
-        fallbackCombo.selectedItem = s.fallbackFont.takeIf { it.isNotBlank() } ?: TermGlyphSettings.editorFallbackFont()
-        sizeSpinner.value = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        fallbackCombo.selectedItem = s.fallbackFont.takeIf { it.isNotBlank() } ?: CCGlyphSettings.editorFallbackFont()
+        sizeSpinner.value = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         lineHeightSpinner.value = s.lineHeight
         letterSpacingSpinner.value = s.letterSpacing
         shellCombo.selectedItem = s.shellPath
-        scrollbackSpinner.value = s.scrollback
-        cursorCombo.selectedItem = s.cursorStyle
+        plusModeCombo.selectedItem = if (s.plusOpensPlainShell) "Plain terminal" else "Claude session"
+        beamCb.isSelected = s.beamEnabled
+        tabCb.isSelected = s.tabColorEnabled
+        chipCb.isSelected = s.showStatusChip
+        chipModelCb.isSelected = s.chipShowModel
+        chipCostCb.isSelected = s.chipShowCost
+        chipCtxCb.isSelected = s.chipShowContext
+        updateCb.isSelected = s.updateClaudeBeforeStart
+        syncChipSubEnabled()
+    }
+
+    /** Enable/disable the "Show in chip" sub-options to match the "Show status chip" toggle. */
+    private fun syncChipSubEnabled() {
+        val on = chipCb.isSelected
+        chipModelCb.isEnabled = on
+        chipCostCb.isEnabled = on
+        chipCtxCb.isEnabled = on
     }
 
     private fun round1(v: Double): Double = (v * 10.0).roundToInt() / 10.0
@@ -208,7 +270,7 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
         existing += unixShells.filter { File(it).canExecute() }
 
         // Windows shells (checked for executability via SystemRoot / ProgramFiles).
-        if (TermGlyphSettings.isWindows) {
+        if (CCGlyphSettings.isWindows) {
             val programFiles = System.getenv("ProgramFiles") ?: "C:\\Program Files"
             val sysRoot = System.getenv("SystemRoot") ?: "C:\\Windows"
             val winShells = listOf(
@@ -221,7 +283,7 @@ class TermGlyphSettingsConfigurable : SearchableConfigurable {
         }
 
         if (existing.isEmpty()) {
-            existing += if (TermGlyphSettings.isWindows) listOf("powershell.exe", "cmd.exe")
+            existing += if (CCGlyphSettings.isWindows) listOf("powershell.exe", "cmd.exe")
             else listOf("/bin/zsh", "/bin/bash", "/bin/sh")
         }
         return existing.toTypedArray()

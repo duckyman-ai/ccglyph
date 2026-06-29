@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -8,11 +8,11 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.impl.AppEditorFontOptions
 
 /**
- * Application-level (global) terminal settings — stored in termglyph.xml
+ * Application-level (global) terminal settings — stored in ccglyph.xml
  * Registered as an applicationService in plugin.xml
  */
-@State(name = "TermGlyphSettings", storages = [Storage("termglyph.xml")])
-class TermGlyphSettings : PersistentStateComponent<TermGlyphSettings.State> {
+@State(name = "CCGlyphSettings", storages = [Storage("ccglyph.xml")])
+class CCGlyphSettings : PersistentStateComponent<CCGlyphSettings.State> {
 
     data class State(
         var fontFamily: String = DEFAULT_FONT, // default: JetBrains Mono — bundled via @font-face so it renders on every OS without a system-font install (NOT follow-IDE, because a non-bundled editor font wouldn't render on Windows)
@@ -23,6 +23,17 @@ class TermGlyphSettings : PersistentStateComponent<TermGlyphSettings.State> {
         var shellPath: String = defaultShell(),          // default: the user's login shell ($SHELL)
         var scrollback: Int = 10000,
         var cursorStyle: String = "block",
+        var plusOpensPlainShell: Boolean = false,   // the "+" button (and reopen/new-tab) open a plain shell
+                                                    //   instead of a Claude session. The first tab is always Claude.
+        var updateClaudeBeforeStart: Boolean = false,   // run `claude update` once before each session starts
+        // --- Status chip & effects (global, apply to every profile/session) ---
+        var beamEnabled: Boolean = true,            // the gradient beam across the top of the terminal
+        var tabColorEnabled: Boolean = true,        // the tool-window tab colour blink (Swing TabBlinker)
+        var showStatusChip: Boolean = true,         // the ● model/ctx pill, top-right of the terminal
+        var chipShowModel: Boolean = true,
+        var chipShowCost: Boolean = false,          // OFF by default — total_cost_usd is Claude Code's Anthropic-priced
+                                                    //   estimate, wrong when routing to a non-Anthropic model
+        var chipShowContext: Boolean = true,
     )
 
     private var myState = State()
@@ -125,8 +136,8 @@ class TermGlyphSettings : PersistentStateComponent<TermGlyphSettings.State> {
         val isWindows: Boolean
             get() = System.getProperty("os.name").lowercase().contains("win")
 
-        fun getInstance(): TermGlyphSettings =
-            ApplicationManager.getApplication().getService(TermGlyphSettings::class.java)
+        fun getInstance(): CCGlyphSettings =
+            ApplicationManager.getApplication().getService(CCGlyphSettings::class.java)
 
     }
 }

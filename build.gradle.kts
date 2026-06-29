@@ -7,9 +7,13 @@ plugins {
     // Kotlin 2.4.0 — must be >=2.1 because pty4j 0.13.12 is compiled with Kotlin 2.1.21
     // (older compilers can't read its metadata)
     kotlin("jvm") version "2.4.0"
+    // kotlinx-serialization — used for the generic JsonElement DOM: parsing/merging a profile's
+    // settings.json and building the injected statusLine + hooks fragment. Runtime-only API
+    // (no @Serializable classes), but the compiler plugin is applied so the runtime initialises.
+    kotlin("plugin.serialization") version "2.4.0"
 }
 
-group = "com.duckyman.plugin.termglyph"
+group = "com.workspect.plugin.ccglyph"
 version = "1.0.0"
 
 repositories {
@@ -24,7 +28,7 @@ dependencies {
     // Build against IntelliJ IDEA Ultimate 2025.3 (JCEF is bundled with IU; native split API present).
     intellijPlatform {
         create("IU", "2025.3")
-        // Access the IDE's built-in terminal settings (TerminalProjectOptionsProvider) so TermGlyph
+        // Access the IDE's built-in terminal settings (TerminalProjectOptionsProvider) so CCGlyph
         // can default to the same shell the user configured for the built-in terminal.
         bundledPlugin("org.jetbrains.plugins.terminal")
     }
@@ -35,6 +39,9 @@ dependencies {
         exclude("net.java.dev.jna", "jna")
         exclude("net.java.dev.jna", "jna-platform")
     }
+    // JSON DOM: parse + deep-merge a profile's settings.json with the injected statusLine/hooks,
+    // and serialise the runtime settings.json handed to `claude --settings`.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 }
 
 intellijPlatform {

@@ -1,4 +1,4 @@
-package com.duckyman.plugin.termglyph
+package com.workspect.plugin.ccglyph
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -27,11 +27,22 @@ import java.awt.event.KeyEvent
 import java.io.File
 import javax.swing.JComponent
 import javax.swing.KeyStroke
+import com.workspect.plugin.ccglyph.status.ClaudeState
+import com.workspect.plugin.ccglyph.status.StatusController
+import com.workspect.plugin.ccglyph.status.StatusSnapshot
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
-class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null) {
+class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null, private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null) {
 
     private val disposable: Disposable = parentDisposable
     private val browser = JBCefBrowser()
+    /** Flowing gradient beam, painted as a SWING overlay over the browser's top edge — NOT a CSS animation.
+     *  JCEF OSR has no GPU compositor, so a CSS beam would force a Chromium frame every tick and lag xterm.
+     *  Driven from applyStatusToJs() (same state the chip/tab use). See BeamOverlay. */
+    private val beam = BeamOverlay()
     private var session: TerminalSession
 
     // --- output batching ---
@@ -51,8 +62,8 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
 
     // --- process detection (output-triggered, used to switch the tab icon + title) ---
     // When shell output flows in → check the process tree for known tools (DETECT_PRIORITY — first match wins);
-    // only invoke the callback on a state change. TermGlyphContent wires the callback: the icon comes from
-    // iconFor() (null = idle shell → default terminal icon) and the title from the app's OSC title (onTerminalTitle).
+    // only invoke the callback on a state change. CCGlyphContent wires the callback: the icon comes from
+    // iconFor() (null = idle → the session's creation icon) and the title from the app's OSC title (onTerminalTitle).
     @Volatile private var lastCheckMs: Long = 0L
     @Volatile private var currentProcess: String? = null
     var onProcessChange: ((String?) -> Unit)? = null
@@ -67,8 +78,39 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     var onNewTab: (() -> Unit)? = null
     var onCloseTab: (() -> Unit)? = null
 
+    /** Fired once when the PTY process exits (claude Ctrl+C quit / crash / manual destroy). Wired by CCGlyphContent
+     *  to auto-close the tab. Fires on the reader thread → the handler marshals to the EDT. */
+    var onExit: (() -> Unit)? = null
+
+    /** Status callback for the tab blinker (wired by CCGlyphContent); null on non-bridged sessions. */
+    var onStatus: ((ClaudeState) -> Unit)? = null
+    private var statusController: StatusController? = null
+    @Volatile private var warnedHighCtx = false
+    @Volatile private var warnedRate = false
+    /** Last Claude state seen from the bridge — used to re-drive the tab blinker immediately on a settings
+     *  toggle (StatusController.onUpdate is change-gated, so without this the tab colour wouldn't update
+     *  until the next real state change). Null on non-bridged sessions. */
+    @Volatile private var lastStatusState: ClaudeState? = null
+    /** Last status snapshot (model/ctx) — kept so an optimistic IDLE flip (typing during WAITING) can keep
+     *  the chip's model/context content instead of blanking it. */
+    @Volatile private var lastSnapshot: StatusSnapshot? = null
+    /** Optimistic-clear latch: once the user starts typing during a WAITING state we push IDLE locally and
+     *  suppress WAITING re-application (from snap-only updates) until a non-WAITING state arrives, which
+     *  clears this. See inputQuery + StatusController.onUpdate. */
+    @Volatile private var waitingDismissed = false
+
     // --- live-reload: settings / theme changes push to xterm immediately ---
-    private val settingsListener = Runnable { pushConfigToJs() }
+    // On a Settings change also re-apply the current status, so a chip/beam/tab toggle takes effect at once
+    // pushConfigToJs refreshes the JS-driven chip (+ its flags). The beam (Swing BeamOverlay) and the tab colour
+    // (Swing TabBlinker) are NOT in JS — re-drive them here from the last state; each re-reads its own Settings
+    // flag (beamEnabled / tabColorEnabled) so a live toggle takes effect at once.
+    private val settingsListener = Runnable {
+        pushConfigToJs()
+        lastStatusState?.let { state ->
+            onStatus?.invoke(state)
+            beam.setBeamState(state, (lastSnapshot?.contextPct ?: 0) >= 80)
+        }
+    }
     val isDisposed: Boolean get() = disposed
 
     // JS → Kotlin: receive keyboard input from xterm.js.
@@ -77,6 +119,19 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     private val inputQuery = JBCefJSQuery.create(browser as JBCefBrowserBase).apply {
         addHandler { input ->
             session.write(input)
+            // Optimistic clear: the WAITING effect is an attention signal, so once the user starts responding
+            // (any input keystroke / paste) flip to IDLE locally instead of waiting for the UserPromptSubmit /
+            // permission-decision hook. Suppressed again on the next real (non-WAITING) state — see onUpdate.
+            if (input.isNotEmpty() && !waitingDismissed && lastStatusState?.isWaiting == true) {
+                waitingDismissed = true
+                val snap = lastSnapshot
+                ApplicationManager.getApplication().invokeLater {
+                    if (!disposed) {
+                        applyStatusToJs(ClaudeState.IDLE, snap)
+                        onStatus?.invoke(ClaudeState.IDLE)
+                    }
+                }
+            }
             null
         }
     }
@@ -150,12 +205,17 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     init {
         // Whether the editor scheme is dark → passed to the PTY env (COLORFGBG) so TUI apps pick the right theme.
         val darkBg = isDarkColor(EditorColorsManager.getInstance().globalScheme.defaultBackground)
-        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath)
+        session = TerminalSession({ output -> appendOutput(output) }, workDir, darkBg, shellPath, launchSpec) { onExit?.invoke() }
 
         // inject sendInput and onTerminalResize after the page finishes loading.
         // Also removes the loading overlay (#tg-loading) injected by extractWebResources.
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadEnd(b: CefBrowser, f: CefFrame, httpStatusCode: Int) {
+                // Show the beam strip only once the terminal page has loaded — otherwise it paints the terminal
+                // bg colour over the still-blank loading area and reads as a black line during the pre-load moment.
+                ApplicationManager.getApplication().invokeLater {
+                    if (!disposed) { beam.isVisible = true; root.revalidate() }
+                }
                 browser.cefBrowser.executeJavaScript("""
                     window.sendInput = function(data) {
                         ${inputQuery.inject("data")}
@@ -211,24 +271,56 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // → when the terminal is focused, IntelliJ will capture these before global actions (e.g. Cmd+K = Commit).
         registerShortcuts()
 
-        // Live-reload: when settings are applied (Settings → Tools → TermGlyph) or the IDE
+        // Live-reload: when settings are applied (Settings → Tools → CCGlyph) or the IDE
         // editor color scheme changes, push the new config to xterm immediately.
-        TermGlyphSettings.getInstance().addListener(settingsListener)
+        CCGlyphSettings.getInstance().addListener(settingsListener)
         ApplicationManager.getApplication().messageBus.connect(disposable).subscribe(
             EditorColorsManager.TOPIC,
             object : EditorColorsListener {
                 override fun globalSchemeChange(scheme: EditorColorsScheme?) { pushConfigToJs() }
             }
         )
+
+        // Bridge-backed session? Poll its status dir and drive the beam/chip + tab effects.
+        val spec = launchSpec
+        if (spec?.hasBridge == true) {
+            statusController = StatusController(spec.sessionId, spec.stateDir).apply {
+                onUpdate = { state, snap ->
+                    // While the WAITING effect is optimistically dismissed (user started typing), ignore
+                    // WAITING re-fires (e.g. a snap-only update) — stay cleared until a real non-WAITING
+                    // state arrives, which also releases the latch.
+                    if (!disposed && !(state.isWaiting && waitingDismissed)) {
+                        if (!state.isWaiting) waitingDismissed = false
+                        lastStatusState = state
+                        if (snap != null) lastSnapshot = snap
+                        applyStatusToJs(state, snap)
+                        onStatus?.invoke(state)
+                        snap?.let { checkThresholds(it) }
+                    }
+                }
+                start()
+            }
+        }
     }
 
-    val component: JComponent get() = browser.component
+    /** Browser in CENTER, beam in NORTH (its own 6px strip). The beam CANNOT overlay the browser: this build uses
+     *  IntelliJ's REMOTE JCEF (com.jetbrains.cef.remote) whose browser surface is heavyweight, so a lightweight
+     *  Swing component painted over it is always hidden behind it — an overlapping beam was never visible. A NORTH
+     *  strip is a separate region (no overlap → renders fine) and stays pure-Swing → no Chromium frames → no xterm
+     *  lag. The strip is always present (6px); it clears to transparent when idle. */
+    private val root = javax.swing.JPanel(java.awt.BorderLayout()).apply {
+        isOpaque = false
+        add(browser.component, java.awt.BorderLayout.CENTER)
+        add(beam, java.awt.BorderLayout.NORTH)
+    }
+
+    val component: JComponent get() = root
 
     /** Register component-scoped keyboard shortcuts (override the global keymap when the terminal is focused).
      *  IDE actions call tgClear()/tgCtrlC() instead of relying on a JS keydown handler
      *  (the JS handler doesn't work when the IDE steals the keystroke before it reaches JCEF, e.g. Cmd+K = Commit). */
     private fun registerShortcuts() {
-        val clearAction = object : AnAction("Clear TermGlyph Terminal") {
+        val clearAction = object : AnAction("Clear CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = clearScreen()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -242,7 +334,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Ctrl+C is "smart" (matches the IDE terminal): copy the selection if one exists, else send SIGINT.
         // The decision is made in JS (window.tgCtrlC) so both this component-scoped shortcut and the JS keydown
         // handler share one source of truth — see tgCtrlC in terminal.html.
-        val interruptAction = object : AnAction("Copy or Interrupt TermGlyph Terminal (Ctrl+C)") {
+        val interruptAction = object : AnAction("Copy or Interrupt CCGlyph Terminal (Ctrl+C)") {
             override fun actionPerformed(e: AnActionEvent) = ctrlC()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -253,7 +345,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Copy the selection: Cmd+C (mac) / Ctrl+Shift+C (Win/Linux). The WebGL renderer paints to a canvas so the
         // browser can't copy the selected text itself; this routes xterm's full selection to the clipboard (see copyQuery).
         // (Ctrl+C without Shift stays SIGINT, above.) No selection → no-op.
-        val copyAction = object : AnAction("Copy TermGlyph Selection") {
+        val copyAction = object : AnAction("Copy CCGlyph Selection") {
             override fun actionPerformed(e: AnActionEvent) = copySelection()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -269,7 +361,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         // Paste: Cmd+V (mac) / Ctrl+V (Win/Linux). The canvas can't read the clipboard, so this routes through
         // requestPaste() (same path as the right-click Paste menu). Also handled in JS (terminal.html) as a fallback
         // in case the IDE grabs the keystroke before the component-scoped shortcut fires.
-        val pasteAction = object : AnAction("Paste to TermGlyph Terminal") {
+        val pasteAction = object : AnAction("Paste to CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = requestPaste()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -282,7 +374,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         )
         // Find in terminal: Cmd+F (mac) / Ctrl+F. The IDE grabs Find as a global action, so this component-scoped
         // shortcut takes over when the terminal is focused → toggles the xterm search bar (window.tgFindToggle).
-        val findAction = object : AnAction("Find in TermGlyph Terminal") {
+        val findAction = object : AnAction("Find in CCGlyph Terminal") {
             override fun actionPerformed(e: AnActionEvent) = findToggle()
             override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
         }
@@ -345,7 +437,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             add(menuAction("Clear", "Clear the terminal", AllIcons.Actions.Refresh) { clearScreen() })
         }
         val popup = com.intellij.openapi.actionSystem.ActionManager.getInstance()
-            .createActionPopupMenu("TermGlyphTerminalContext", group)
+            .createActionPopupMenu("CCGlyphTerminalContext", group)
         popup.setTargetComponent(browser.component)
         popup.component.show(browser.component, x, y)
     }
@@ -382,7 +474,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
     }
 
     /** Force a full repaint of the terminal canvas.
-     *  Called when the panel regains focus/selection (see TermGlyphTerminalFactory) — JCEF/Chromium drops
+     *  Called when the panel regains focus/selection (see CCGlyphTerminalFactory) — JCEF/Chromium drops
      *  the occluded canvas surface while the tab/window is backgrounded, so the screen looks frozen/stale
      *  until a paint is forced. Drives window.tgRefresh in terminal.html. */
     fun refresh() {
@@ -393,7 +485,60 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
     }
 
-    /** Descendant processes currently running in this session (used to ask for confirmation before closing a tab — see TermGlyphTerminalFactory). */
+    /** Push a Claude state + status snapshot to the in-terminal effects (gradient beam + status chip). */
+    fun applyStatusToJs(state: ClaudeState, snapshot: StatusSnapshot?) {
+        if (disposed) return
+        val highCtx = (snapshot?.contextPct ?: 0) >= 80
+        beam.setBeamState(state, highCtx)   // Swing strip beam (a CSS animation would lag xterm; overlay can't paint over remote JCEF)
+        runCatching {
+            browser.cefBrowser.executeJavaScript(
+                "window.ccgSetState && window.ccgSetState('${state.name}', ${highCtx});",
+                browser.cefBrowser.url, 0
+            )
+        }
+        val payload = buildJsonObject {
+            put("model", snapshot?.model ?: "")
+            put("costUsd", snapshot?.costUsd ?: 0.0)
+            put("contextPct", snapshot?.contextPct ?: 0)
+        }
+        val jsonStr = Json.encodeToString(JsonElement.serializer(), payload)
+        val escaped = jsEscape(jsonStr)
+        runCatching {
+            browser.cefBrowser.executeJavaScript(
+                "window.ccgUpdateStatus && window.ccgUpdateStatus(\"$escaped\");",
+                browser.cefBrowser.url, 0
+            )
+        }
+    }
+
+    /** Proactively warn once when the context window or the rate-limit quota gets near full. */
+    private fun checkThresholds(snap: StatusSnapshot) {
+        if (!warnedHighCtx && snap.contextPct >= 90) {
+            warnedHighCtx = true
+            ccgNotify("Context window ${snap.contextPct}% full",
+                "Consider running /compact soon — the context window is almost full.")
+        } else if (snap.contextPct < 70) {
+            warnedHighCtx = false
+        }
+        if (!warnedRate && snap.rateFiveHourPct >= 85) {
+            warnedRate = true
+            ccgNotify("Rate limit ${snap.rateFiveHourPct.toInt()}% used",
+                "You're close to the 5-hour usage quota.")
+        } else if (snap.rateFiveHourPct < 60) {
+            warnedRate = false
+        }
+    }
+
+    private fun ccgNotify(title: String, content: String) {
+        runCatching {
+            val notif = com.intellij.notification.NotificationGroupManager.getInstance()
+                .getNotificationGroup("ccglyph")
+                .createNotification(title, content, com.intellij.notification.NotificationType.WARNING)
+            notif.notify(com.intellij.openapi.project.ProjectManager.getInstance().defaultProject)
+        }
+    }
+
+    /** Descendant processes currently running in this session (used to ask for confirmation before closing a tab — see CCGlyphTerminalFactory). */
     fun runningProcesses(): List<String> = session.runningProcesses()
 
     /** Output-triggered: latch onto moments when shell output flows in to check the process tree
@@ -474,9 +619,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
     }
 
-    /** Build the JSON config object for new Terminal(...) from TermGlyphSettings + the current editor color scheme. */
+    /** Build the JSON config object for new Terminal(...) from CCGlyphSettings + the current editor color scheme. */
     private fun buildConfigJson(): String {
-        val s = TermGlyphSettings.getInstance().state
+        val s = CCGlyphSettings.getInstance().state
         // Theme genuinely follows the IDE's editor color scheme (there's no theme setting anymore) —
         // bg/fg/cursor/selection are pulled directly from the scheme; the 16-color ANSI palette picks
         // dark/light based on the bg luminance → the terminal blends into the editor (same background,
@@ -508,9 +653,9 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         }
         val font = s.fontFamily.replace("\\", "\\\\").replace("\"", "\\\"")
         // Resolve the "follow IDE" sentinels (fontSize=0 / fallbackFont="") to the live IDE values.
-        val fallback = (if (s.fallbackFont.isNotBlank()) s.fallbackFont else TermGlyphSettings.editorFallbackFont())
+        val fallback = (if (s.fallbackFont.isNotBlank()) s.fallbackFont else CCGlyphSettings.editorFallbackFont())
             .replace("\\", "\\\\").replace("\"", "\\\"")
-        val fontSize = if (s.fontSize > 0) s.fontSize else TermGlyphSettings.editorFontSize()
+        val fontSize = if (s.fontSize > 0) s.fontSize else CCGlyphSettings.editorFontSize()
         val lineHeight = Math.round(s.lineHeight * 10.0) / 10.0
         return "{" +
             // Emoji glyph fallback chain (per-glyph): JetBrains Mono (and most monospace fonts) ship no
@@ -535,7 +680,13 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             "\"cursorStyle\":\"${s.cursorStyle}\"," +
             "\"allowTransparency\":false," +
             "\"allowProposedApi\":true," +   // unlocks registerDecoration() — the find active-match highlight (yellow bg + black text)
-            "\"theme\":$themeJson" +
+            "\"theme\":$themeJson," +
+            // Status chip flags (global). terminal.html reads window.TG_CONFIG.ccg to gate the chip (and
+            // re-renders on live-reload via tgReloadConfig). The gradient beam AND the tab-colour effect are
+            // both Swing overlays (BeamOverlay / TabBlinker, gated in Kotlin) — not CSS — so the only JS flag
+            // that matters here is showChip + the per-field toggles. `beam` is kept in the payload for back-compat
+            // (vestigial in JS; the Swing BeamOverlay re-reads beamEnabled directly). Cost defaults off.
+            "\"ccg\":{\"beam\":${s.beamEnabled},\"showChip\":${s.showStatusChip},\"model\":${s.chipShowModel},\"cost\":${s.chipShowCost},\"ctx\":${s.chipShowContext}}" +
             "}"
     }
 
@@ -696,13 +847,149 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             disposed = true
             runCatching { alarm.cancelAllRequests() }
         }
+        runCatching { statusController?.dispose() }
         // Unregister live-reload listeners (theme listener is auto-cleaned via messageBus.dispose on parentDisposable).
-        runCatching { TermGlyphSettings.getInstance().removeListener(settingsListener) }
+        runCatching { CCGlyphSettings.getInstance().removeListener(settingsListener) }
         runCatching { alarm.dispose() }
         session.destroy()
         inputQuery.dispose()
         resizeQuery.dispose()
         browser.dispose()
+        beam.dispose()
+    }
+
+    /**
+     * A thin gradient "beam" painted as a SWING strip directly above the terminal (its own 6px region, NOT
+     * overlapping the browser).
+     *
+     * WHY SWING, NOT CSS: the JCEF browser renders every frame of a continuous CSS animation and pushes it into
+     * Swing, competing with xterm and lagging the terminal (worst while Claude streams — exactly when the beam
+     * animates). A Swing beam repaints only its own strip on the EDT and never makes Chromium render, so the beam
+     * flows with zero impact on xterm.
+     *
+     * WHY A SEPARATE STRIP, NOT AN OVERLAY: this build's JCEF is the remote variant (com.jetbrains.cef.remote),
+     * whose browser surface is heavyweight. A lightweight Swing component painted OVER it is always hidden behind
+     * it — an overlapping beam was never visible. So the beam lives in its own BorderLayout.NORTH region (no
+     * overlap, renders fine). The strip is always 6px; when idle it paints the terminal's background colour so it
+     *  blends in (no visible strip until a state activates).
+     *
+     * Look matches the old CSS beam: a soft glow (vertical alpha fade, opaque top → transparent bottom) + state
+     * colours (purple/blue running, amber waiting, red error, red/orange near-limit) + a flowing phase.
+     */
+    private class BeamOverlay : JComponent() {
+        private val timer = javax.swing.Timer(FRAME_MS) { advance() }.apply { isRepeats = true }
+        private var phase = 0f
+        @Volatile private var mode = Mode.IDLE
+        private var bi: java.awt.image.BufferedImage? = null
+        private var biW = 0
+        private var biH = 0
+
+        private enum class Mode { IDLE, RUNNING, WAITING, ERROR, HIGH }
+
+        init { isOpaque = true; isVisible = false }
+
+        /** The strip is always 6px tall (BorderLayout.NORTH uses this height); the terminal is permanently 6px
+         *  shorter so it never resizes on a state change. */
+        override fun getPreferredSize(): java.awt.Dimension = java.awt.Dimension(1024, BEAM_H)
+
+        /** Drive the beam from the same (state, high-context) the chip/tab use. Re-reads `beamEnabled` each call
+         *  so the live Settings toggle takes effect immediately (mirrors TabBlinker). Thread-safe (Swing work on EDT). */
+        fun setBeamState(state: ClaudeState, high: Boolean) {
+            val enabled = CCGlyphSettings.getInstance().state.beamEnabled
+            val next = when {
+                !enabled -> Mode.IDLE
+                high -> Mode.HIGH
+                state == ClaudeState.ERROR -> Mode.ERROR
+                state.isBusy -> Mode.RUNNING
+                state.isWaiting -> Mode.WAITING
+                else -> Mode.IDLE
+            }
+            if (next == mode) return
+            mode = next
+            ApplicationManager.getApplication().invokeLater {
+                if (next == Mode.IDLE) {
+                    if (timer.isRunning) timer.stop()
+                    repaint()   // repaint so the strip reverts to the terminal bg colour (blends in when idle)
+                } else if (!timer.isRunning) {
+                    phase = 0f
+                    timer.start()
+                }
+            }
+        }
+
+        fun dispose() { if (timer.isRunning) timer.stop() }
+
+        /** The terminal's background colour — the strip fills with this so it blends in when idle. Matches what
+         *  buildConfigJson sets as the xterm theme background (scheme.defaultBackground); re-read each paint so a
+         *  theme change takes effect at once. */
+        private fun terminalBg(): java.awt.Color =
+            runCatching { EditorColorsManager.getInstance().globalScheme.defaultBackground }
+                .getOrDefault(java.awt.Color(0x1e, 0x1e, 0x1e))
+
+        private fun advance() {
+            val w = width
+            if (w <= 0) return
+            // One full flow cycle ≈ 2.4s running / 1.6s waiting (matches the old CSS durations) at ~30fps.
+            val cycle = if (mode == Mode.WAITING) WAIT_FRAMES else RUN_FRAMES
+            phase += w.toFloat() / cycle
+            if (phase >= w) phase -= w.toFloat()
+            repaint()
+        }
+
+        override fun paintComponent(g: java.awt.Graphics) {
+            val g2 = g as java.awt.Graphics2D
+            val w = width; val h = height
+            if (w <= 0 || h <= 0) return
+            // Always fill with the terminal's own background colour first. The strip sits directly above the
+            // terminal, so matching its bg makes the strip invisible when idle (no black gap) and gives the glow
+            // a colour to fade into when active. isOpaque=true (init) tells Swing not to paint anything behind us.
+            g2.color = terminalBg()
+            g2.fillRect(0, 0, w, h)
+            if (mode == Mode.IDLE) return
+            val (colors, fracs) = palette(mode) ?: return
+            // Render into a tiny ARGB scratch image: (1) the flowing horizontal gradient — REPEAT is seamless
+            // because each palette's end colour == its start — then (2) a vertical alpha fade via DST_IN so the
+            // bar reads as a soft glow bleeding down from the top edge (exactly the old CSS mask).
+            var img = bi
+            if (img == null || biW != w || biH != h) {
+                img = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                bi = img; biW = w; biH = h
+            }
+            val period = w.toFloat()
+            val bg = img.createGraphics()
+            bg.composite = java.awt.AlphaComposite.Src
+            bg.paint = java.awt.LinearGradientPaint(
+                -phase, 0f, period - phase, 0f, fracs, colors,
+                java.awt.MultipleGradientPaint.CycleMethod.REPEAT
+            )
+            bg.fillRect(0, 0, w, h)
+            bg.composite = java.awt.AlphaComposite.DstIn
+            bg.paint = java.awt.GradientPaint(
+                0f, 0f, java.awt.Color(255, 255, 255, 255),
+                0f, h.toFloat(), java.awt.Color(255, 255, 255, 0)
+            )
+            bg.fillRect(0, 0, w, h)
+            bg.dispose()
+            g2.drawImage(img, 0, 0, null)
+        }
+
+        private fun palette(m: Mode): Pair<Array<java.awt.Color>, FloatArray>? = when (m) {
+            Mode.RUNNING -> ary(0x7c3aed, 0x2563eb, 0x06b6d4, 0x2563eb, 0x7c3aed) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
+            Mode.WAITING -> ary(0xb45309, 0xf59e0b, 0xfde68a, 0xf59e0b, 0xb45309) to floatArrayOf(0f, .25f, .5f, .75f, 1f)
+            // Pure red (red-700 ↔ red-500), distinct from HIGH's red→orange (near-limit) so a failed tool doesn't read
+            // as "almost out of context". Symmetric ends keep the REPEAT seam invisible like the other palettes.
+            Mode.ERROR -> ary(0xb91c1c, 0xef4444, 0xb91c1c) to floatArrayOf(0f, .5f, 1f)
+            Mode.HIGH -> ary(0xef4444, 0xf97316, 0xef4444) to floatArrayOf(0f, .5f, 1f)
+            Mode.IDLE -> null
+        }
+
+        private fun ary(vararg rgb: Int) = Array(rgb.size) { java.awt.Color(rgb[it]) }
+
+        private companion object {
+            const val FRAME_MS = 33      // ~30fps — smooth for a beam, half the Swing work of 60fps
+            const val RUN_FRAMES = 72    // 2.4s flow cycle (matches the old running duration)
+            const val WAIT_FRAMES = 48   // 1.6s flow cycle (matches the old waiting duration)
+        }
     }
 
     companion object {
@@ -743,8 +1030,13 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
             "agy",                           // Google Antigravity
         )
 
-        /** Version of the web assets — bump every time you edit terminal.html/xterm to invalidate the CEF file:// cache. */
-        const val WEB_VERSION = "v20"
+        /** Version of the extracted web + bridge assets. Bump every time you edit terminal.html/xterm OR the
+         *  bridge scripts (ccglyph-bridge / ccglyph-bridge.cmd): both are extracted once into a temp dir keyed
+         *  on this version (with a `.done` marker), so a stale version keeps serving the OLD assets. */
+        const val WEB_VERSION = "v26"
+
+        /** Height (px) of the Swing BeamOverlay strip — matches the old CSS beam height. */
+        const val BEAM_H = 6
 
         /** Static xterm assets that are extracted once at startup (not per-tab). */
         private val STATIC_ASSETS = listOf(
@@ -762,7 +1054,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
         )
 
         /** Temp directory where xterm assets + terminal.html live. */
-        private val webDir = File(System.getProperty("java.io.tmpdir"), "termglyph-web-$WEB_VERSION")
+        private val webDir = File(System.getProperty("java.io.tmpdir"), "ccglyph-web-$WEB_VERSION")
 
         private val extractLock = Any()
         @Volatile private var assetsExtracted = false
@@ -771,7 +1063,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
          * Extract static xterm files (js/css/addons) to a temp directory — once per IDE session.
          * Safe to call from any thread, safe to call multiple times (no-op after first).
          *
-         * Called at project-open (TermGlyphStartupActivity) so the 1.3MB file I/O is done
+         * Called at project-open (CCGlyphStartupActivity) so the 1.3MB file I/O is done
          * before the user ever opens a terminal tab.  Also called lazily by the first tab
          * if startup hasn't finished yet.
          */
@@ -787,7 +1079,7 @@ class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellP
                     } ?: error("resource not found in plugin jar: $res")
                 }
                 assetsExtracted = true
-                LOG.info("[TermGlyph] static assets v$WEB_VERSION extracted to ${webDir.absolutePath}")
+                LOG.info("[CCGlyph] static assets v$WEB_VERSION extracted to ${webDir.absolutePath}")
             }
         }
     }

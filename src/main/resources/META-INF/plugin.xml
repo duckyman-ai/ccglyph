@@ -1,32 +1,34 @@
 <idea-plugin>
-    <id>com.duckyman.plugin.termglyph</id>
-    <name>TermGlyph</name>
+    <id>com.workspect.plugin.ccglyph</id>
+    <name>Claude Code Glyph</name>
     <version>1.0.0</version>
-    <vendor url="https://github.com/duckyman-ai/termglyph">Duckyman</vendor>
+    <vendor url="https://github.com/duckyman-ai/ccglyph">Duckyman</vendor>
 
     <description><![CDATA[
-        A terminal tool window for IntelliJ-based IDEs that renders <b>Claude Code</b> cleanly — fixing the
-        overlapping, hard-to-read text — and handles complex scripts (Thai, emoji) correctly.<br/><br/>
-        It runs <b>xterm.js</b> (Unicode 11) inside the IDE's JCEF browser, giving you a familiar, fast terminal with:
+        A <b>Claude Code</b> terminal for JetBrains IDEs that shows what Claude is doing at a glance &mdash; thinking, running, or waiting.<br/><br/>
+        It renders Claude Code cleanly (no overlapping text) via <b>xterm.js 6 (Unicode 11)</b> in the IDE's JCEF browser
+        and adds Claude-Code-specific power features:
         <ul>
-        <li><b>Clean rendering</b> — Claude Code's input box, borders, and dense output display without overlapping; Thai/emoji/wide chars compose correctly.</li>
-        <li><b>Find</b> (Cmd/Ctrl+F), <b>copy/paste</b>, and a native right-click menu.</li>
-        <li><b>Multiple tabs plus native side-by-side split</b> (Split Right/Down), like the IDE's own terminal.</li>
-        <li><b>Tab icons and titles</b> that follow the running process (e.g. Claude Code).</li>
-        <li><b>Theme</b> — follows your IDE editor color scheme; ANSI palette from Console Colors.</li>
+        <li><b>Profiles</b> &mdash; start each session from a chosen <code>settings.json</code> with model, permission-mode,
+            env and isolated config-dir overrides. Pick from the New-Session popup on the <b>+</b> button.</li>
+        <li><b>Live status &amp; effects</b> &mdash; a gradient beam, a colour-changing tab and a glass status chip
+            reflect whether Claude is thinking, running a tool, or waiting for permission. The chip shows model and
+            context-window usage live (via injected hooks &amp; statusLine); both the chip contents and the effects are
+            fully configurable in Settings (cost is opt-in).</li>
+        <li><b>Context &amp; rate-limit awareness</b> &mdash; a context-window fuel gauge in the chip, and proximity warnings as the context window or the 5-hour usage quota fills up (per-session cost is optional).</li>
+        <li>Clean rendering, <b>Find</b> (Cmd/Ctrl+F), copy/paste, native side-by-side split, tab icons/titles that follow
+            the running process, and IDE-theme following.</li>
         </ul>
-        Works wherever the <b>Web Browser (JCEF)</b> plugin is available (IntelliJ IDEA Ultimate and most
-        professional IDEs; installable on Android Studio 2026.1+).
+        Works wherever the <b>Web Browser (JCEF)</b> plugin is available (IntelliJ IDEA Ultimate and most professional IDEs).<br/><br/>
+        <i>Forked from TermGlyph.</i>
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.0</b> — first Marketplace release.<br/>
-        • Renders Thai combining characters (vowels/tone marks) and emoji correctly via xterm.js Unicode 11.<br/>
-        • Multi-tab terminal plus native side-by-side split (Split Right/Down/Change Orientation/Unsplit).<br/>
-        • Find in terminal (Cmd/Ctrl+F), copy/paste, native right-click menu.<br/>
-        • Tab icons and titles follow the running process (Claude Code, etc.); OSC title support.<br/>
-        • Theme follows the IDE editor color scheme; ANSI palette from Console Colors.<br/>
-        • Output batching, anti-freeze repaints, close-confirmation dialog.<br/>
+        <b>1.0.0</b> &mdash; CCGlyph (fork of TermGlyph).<br/>
+        &bull; Profiles: launch Claude Code from a chosen settings.json with model/permission/env/config-dir overrides + a New-Session picker.<br/>
+        &bull; Live status bridge: gradient beam + colour tab + status chip driven by hooks &amp; statusLine (thinking / tool / waiting / idle), with live model and context-window %. The chip contents and the effects are configurable in Settings; per-session cost is opt-in.<br/>
+        &bull; Context dashboard with rate-limit warnings.<br/>
+        &bull; Clean Claude Code rendering (xterm.js Unicode 11), multi-tab + native side-by-side split, find, copy/paste, process-aware tab icons, IDE-theme following.
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
@@ -40,28 +42,35 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow
-            id="TermGlyph"
+            id="CCGlyph"
             anchor="bottom"
-            factoryClass="com.duckyman.plugin.termglyph.TermGlyphTerminalFactory"
-            icon="/icons/term-glyph.svg"
+            factoryClass="com.workspect.plugin.ccglyph.CCGlyphTerminalFactory"
+            icon="/icons/ccglyph.svg"
             canCloseContents="true"/>
 
         <!-- Auto-activate the tool window when a project opens -->
-        <projectActivity implementation="com.duckyman.plugin.termglyph.TermGlyphStartupActivity"/>
+        <projectActivity implementation="com.workspect.plugin.ccglyph.CCGlyphStartupActivity"/>
 
-        <!-- Global terminal settings, persisted in termglyph.xml -->
+        <!-- Global terminal settings, persisted in ccglyph.xml -->
         <applicationService
-            serviceImplementation="com.duckyman.plugin.termglyph.TermGlyphSettings"/>
+            serviceImplementation="com.workspect.plugin.ccglyph.CCGlyphSettings"/>
         <applicationConfigurable
             groupId="tools"
-            displayName="TermGlyph"
-            id="termglyph.settings"
-            instance="com.duckyman.plugin.termglyph.TermGlyphSettingsConfigurable"/>
+            displayName="Claude Code Glyph"
+            id="ccglyph.settings"
+            instance="com.workspect.plugin.ccglyph.CCGlyphSettingsConfigurable"/>
+
+        <!-- Claude Code launch profiles — edited on the Claude Code Glyph settings page (embedded table). -->
+        <applicationService
+            serviceImplementation="com.workspect.plugin.ccglyph.profile.ProfileService"/>
 
         <!-- Native side-by-side split (Split Right/Down, etc. — the platform's own actions, like the built-in terminal).
              Only effective on IDE builds that have this extension point (2024.2+); ignored on older builds. -->
         <toolWindow.splitContentProvider
-            toolWindowId="TermGlyph"
-            implementationClass="com.duckyman.plugin.termglyph.TermGlyphSplitContentProvider"/>
+            toolWindowId="CCGlyph"
+            implementationClass="com.workspect.plugin.ccglyph.CCGlyphSplitContentProvider"/>
+
+        <!-- Balloon notifications: context-window + rate-limit proximity warnings. -->
+        <notificationGroup id="ccglyph" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>
