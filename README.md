@@ -7,8 +7,8 @@
 <p align="center">Runs on <b>macOS</b> and <b>Windows</b>.</p>
 
 <p align="center">
-  <video src="docs/images/thinking.mp4" width="360" controls autoplay loop muted playsinline></video>
-  <video src="docs/images/waiting.mp4" width="360" controls autoplay loop muted playsinline></video>
+  <img src="docs/images/thinking.gif" width="360" alt="Claude Code Glyph — thinking / running a tool">
+  <img src="docs/images/waiting.gif" width="360" alt="Claude Code Glyph — waiting for permission">
 </p>
 <p align="center"><sub>Left: thinking / running a tool &nbsp;·&nbsp; Right: waiting for permission</sub></p>
 
