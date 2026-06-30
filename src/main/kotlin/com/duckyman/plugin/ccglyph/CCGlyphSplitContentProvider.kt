@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager

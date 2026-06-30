@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.pty4j.PtyProcessBuilder
 import com.pty4j.WinSize
@@ -13,7 +13,7 @@ class TerminalSession(
      *  precedence over CCGlyph's own settings.  Null/blank → fall back to the resolution below. */
     ideShellPath: String? = null,
     /** When set, the PTY runs this resolved spec (a claude/profile session) instead of a login shell. */
-    private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null,
+    private val launchSpec: com.duckyman.plugin.ccglyph.launch.LaunchSpec? = null,
     /** Fired once when the PTY process exits (clean quit, crash, or session.destroy on tab close). Runs on the
      *  reader thread — the handler must marshal to the EDT. Used by CCGlyphContent to auto-close the tab. */
     private val onExit: () -> Unit = {},
@@ -146,10 +146,10 @@ class TerminalSession(
         return builder.start()
     }
 
-    /** Build + start one PTY for a resolved [com.workspect.plugin.ccglyph.launch.LaunchSpec]
+    /** Build + start one PTY for a resolved [com.duckyman.plugin.ccglyph.launch.LaunchSpec]
      *  (a claude/profile session): the spec's argv + merged env + cwd. */
     private fun createSpecPty(
-        spec: com.workspect.plugin.ccglyph.launch.LaunchSpec,
+        spec: com.duckyman.plugin.ccglyph.launch.LaunchSpec,
         useConPty: Boolean,
     ): com.pty4j.PtyProcess {
         val builder = PtyProcessBuilder()

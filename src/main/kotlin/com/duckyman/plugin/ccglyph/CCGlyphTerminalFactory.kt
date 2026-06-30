@@ -1,10 +1,10 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
-import com.workspect.plugin.ccglyph.launch.LaunchSpec
-import com.workspect.plugin.ccglyph.launch.SessionLauncher
-import com.workspect.plugin.ccglyph.profile.NewSessionChoice
-import com.workspect.plugin.ccglyph.profile.NewSessionPopup
-import com.workspect.plugin.ccglyph.profile.ProfileService
+import com.duckyman.plugin.ccglyph.launch.LaunchSpec
+import com.duckyman.plugin.ccglyph.launch.SessionLauncher
+import com.duckyman.plugin.ccglyph.profile.NewSessionChoice
+import com.duckyman.plugin.ccglyph.profile.NewSessionPopup
+import com.duckyman.plugin.ccglyph.profile.ProfileService
 import com.intellij.CommonBundle
 import com.intellij.execution.ExecutionBundle
 import com.intellij.icons.AllIcons

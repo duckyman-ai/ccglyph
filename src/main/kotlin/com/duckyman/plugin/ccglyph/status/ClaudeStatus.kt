@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.status
+package com.duckyman.plugin.ccglyph.status
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement

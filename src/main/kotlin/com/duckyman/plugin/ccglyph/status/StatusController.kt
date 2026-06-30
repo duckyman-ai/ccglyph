@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.status
+package com.duckyman.plugin.ccglyph.status
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 /** Polls a session's bridge state dir (`status.json` + `events.jsonl`) and publishes
  *  [ClaudeState] transitions + [StatusSnapshot] updates to [onUpdate], marshalled to the EDT.
  *
- *  One controller per bridge-backed session (created by [com.workspect.plugin.ccglyph.TerminalBrowserPanel]
+ *  One controller per bridge-backed session (created by [com.duckyman.plugin.ccglyph.TerminalBrowserPanel]
  *  when the panel's LaunchSpec has a bridge), disposed with the panel. Polling (rather than
  *  WatchService) keeps it reliable on macOS; ~150 ms latency is fine for visual effects. */
 class StatusController(

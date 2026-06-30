@@ -13,7 +13,7 @@ plugins {
     kotlin("plugin.serialization") version "2.4.0"
 }
 
-group = "com.workspect.plugin.ccglyph"
+group = "com.duckyman.plugin.ccglyph"
 version = "1.0.0"
 
 repositories {

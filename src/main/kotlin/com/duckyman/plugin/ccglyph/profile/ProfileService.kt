@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.profile
+package com.duckyman.plugin.ccglyph.profile
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -10,8 +10,8 @@ import java.util.UUID
  * Application-level store of Claude Code launch profiles, persisted in `ccglyph-profiles.xml`.
  *
  * Registered as an `applicationService` in plugin.xml. The New-Session popup reads
- * [profiles]; [SessionLauncher][com.workspect.plugin.ccglyph.launch.SessionLauncher] resolves a
- * chosen profile into a [LaunchSpec][com.workspect.plugin.ccglyph.launch.LaunchSpec].
+ * [profiles]; [SessionLauncher][com.duckyman.plugin.ccglyph.launch.SessionLauncher] resolves a
+ * chosen profile into a [LaunchSpec][com.duckyman.plugin.ccglyph.launch.LaunchSpec].
  */
 @State(name = "CCGlyphProfiles", storages = [Storage("ccglyph-profiles.xml")])
 class ProfileService : PersistentStateComponent<ProfileService.State> {

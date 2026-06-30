@@ -1,7 +1,7 @@
-package com.workspect.plugin.ccglyph.bridge
+package com.duckyman.plugin.ccglyph.bridge
 
-import com.workspect.plugin.ccglyph.CCGlyphSettings
-import com.workspect.plugin.ccglyph.TerminalBrowserPanel
+import com.duckyman.plugin.ccglyph.CCGlyphSettings
+import com.duckyman.plugin.ccglyph.TerminalBrowserPanel
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -51,7 +51,7 @@ object BridgeSupport {
     /** Hook events CCGlyph subscribes to (the inputs to the status state machine). Order follows the
      *  turn lifecycle so the list reads top-to-bottom as a session progresses. SubagentStart/Stop bracket
      *  an in-flight Agent tool call, so they sit beside the other tool events; each must also be mapped in
-     *  [com.workspect.plugin.ccglyph.status.StatusController.deriveState] or it falls through to the
+     *  [com.duckyman.plugin.ccglyph.status.StatusController.deriveState] or it falls through to the
      *  previous state (no event is then emitted for it). */
     private val HOOK_EVENTS = listOf(
         "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
@@ -61,7 +61,7 @@ object BridgeSupport {
 
     /** The JSON fragment (`statusLine` + `hooks`) deep-merged onto a profile's base settings.
      *  The hook command is identical for every event (it just appends the event JSON); the
-     *  plugin's [com.workspect.plugin.ccglyph.status.StatusController] derives state from
+     *  plugin's [com.duckyman.plugin.ccglyph.status.StatusController] derives state from
      *  each event's `hook_event_name`. */
     fun injectionJson(sessionId: String, stateDir: String): JsonObject {
         // Single-quote the bridge path + state dir: claude runs hook/statusLine commands via the

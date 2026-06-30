@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.profile
+package com.duckyman.plugin.ccglyph.profile
 
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
@@ -7,7 +7,7 @@ import com.intellij.openapi.ui.popup.ListSeparator
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.ui.awt.RelativePoint
-import com.workspect.plugin.ccglyph.CCGlyphContent
+import com.duckyman.plugin.ccglyph.CCGlyphContent
 import java.awt.Component
 import java.awt.Point
 import javax.swing.Icon
@@ -75,7 +75,7 @@ object NewSessionPopup {
                         // Defer so the popup closes first (onChosen returns FINAL_CHOICE below); opening the modal
                         // settings dialog synchronously here keeps the popup open underneath it.
                         ShowSettingsUtil.getInstance()
-                            .showSettingsDialog(project, com.workspect.plugin.ccglyph.CCGlyphSettingsConfigurable::class.java)
+                            .showSettingsDialog(project, com.duckyman.plugin.ccglyph.CCGlyphSettingsConfigurable::class.java)
                     }
                     PLAIN -> onChoose(NewSessionChoice.PlainTerminal)
                     else -> ProfileService.getInstance().byId(key)?.let {

@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.fileChooser.FileChooser
@@ -11,7 +11,7 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.FormBuilder
-import com.workspect.plugin.ccglyph.profile.ProfilesConfigurable
+import com.duckyman.plugin.ccglyph.profile.ProfilesConfigurable
 import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
 import java.awt.Component
 import java.awt.Dimension

@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.launch
+package com.duckyman.plugin.ccglyph.launch
 
 /** A fully-resolved PTY launch — the argv + env + cwd to exec, plus the bridge wiring.
  *

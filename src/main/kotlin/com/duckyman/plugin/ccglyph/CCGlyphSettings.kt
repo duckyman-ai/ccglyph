@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent

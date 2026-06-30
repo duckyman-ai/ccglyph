@@ -1,11 +1,11 @@
 @file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 
-package com.workspect.plugin.ccglyph.launch
+package com.duckyman.plugin.ccglyph.launch
 
-import com.workspect.plugin.ccglyph.CCGlyphSettings
-import com.workspect.plugin.ccglyph.bridge.BridgeSupport
-import com.workspect.plugin.ccglyph.profile.Profile
-import com.workspect.plugin.ccglyph.profile.envMap
+import com.duckyman.plugin.ccglyph.CCGlyphSettings
+import com.duckyman.plugin.ccglyph.bridge.BridgeSupport
+import com.duckyman.plugin.ccglyph.profile.Profile
+import com.duckyman.plugin.ccglyph.profile.envMap
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

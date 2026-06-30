@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -27,15 +27,15 @@ import java.awt.event.KeyEvent
 import java.io.File
 import javax.swing.JComponent
 import javax.swing.KeyStroke
-import com.workspect.plugin.ccglyph.status.ClaudeState
-import com.workspect.plugin.ccglyph.status.StatusController
-import com.workspect.plugin.ccglyph.status.StatusSnapshot
+import com.duckyman.plugin.ccglyph.status.ClaudeState
+import com.duckyman.plugin.ccglyph.status.StatusController
+import com.duckyman.plugin.ccglyph.status.StatusSnapshot
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null, private val launchSpec: com.workspect.plugin.ccglyph.launch.LaunchSpec? = null) {
+class TerminalBrowserPanel(parentDisposable: Disposable, workDir: String, shellPath: String? = null, private val launchSpec: com.duckyman.plugin.ccglyph.launch.LaunchSpec? = null) {
 
     private val disposable: Disposable = parentDisposable
     private val browser = JBCefBrowser()

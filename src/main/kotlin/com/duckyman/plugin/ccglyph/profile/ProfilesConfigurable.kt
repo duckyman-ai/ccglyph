@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.profile
+package com.duckyman.plugin.ccglyph.profile
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionToolbarPosition
@@ -9,7 +9,7 @@ import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.table.JBTable
-import com.workspect.plugin.ccglyph.CCGlyphContent
+import com.duckyman.plugin.ccglyph.CCGlyphContent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.Icon

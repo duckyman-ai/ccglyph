@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.profile
+package com.duckyman.plugin.ccglyph.profile
 
 /**
  * A launch recipe for a Claude Code session.

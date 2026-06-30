@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph
+package com.duckyman.plugin.ccglyph
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -8,10 +8,10 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentFactory
-import com.workspect.plugin.ccglyph.launch.LaunchSpec
-import com.workspect.plugin.ccglyph.launch.SessionLauncher
-import com.workspect.plugin.ccglyph.profile.Profile
-import com.workspect.plugin.ccglyph.profile.ProfileService
+import com.duckyman.plugin.ccglyph.launch.LaunchSpec
+import com.duckyman.plugin.ccglyph.launch.SessionLauncher
+import com.duckyman.plugin.ccglyph.profile.Profile
+import com.duckyman.plugin.ccglyph.profile.ProfileService
 import javax.swing.Icon
 
 /** Shared terminal-content builder + session counter + icon tables.
@@ -208,19 +208,19 @@ internal object CCGlyphContent {
     private class TabBlinker(private val content: Content) {
         private val timer = javax.swing.Timer(450) { tick() }
         private var on = false
-        @Volatile private var state: com.workspect.plugin.ccglyph.status.ClaudeState =
-            com.workspect.plugin.ccglyph.status.ClaudeState.IDLE
+        @Volatile private var state: com.duckyman.plugin.ccglyph.status.ClaudeState =
+            com.duckyman.plugin.ccglyph.status.ClaudeState.IDLE
 
-        fun setState(newState: com.workspect.plugin.ccglyph.status.ClaudeState) {
+        fun setState(newState: com.duckyman.plugin.ccglyph.status.ClaudeState) {
             state = newState
             // Global "tab colour" toggle (Tools → CCGlyph). When off, never colour the tab. Independent from
             // the gradient beam (which is gated in terminal.html via window.TG_CONFIG.ccg.beam).
-            if (!com.workspect.plugin.ccglyph.CCGlyphSettings.getInstance().state.tabColorEnabled) {
+            if (!com.duckyman.plugin.ccglyph.CCGlyphSettings.getInstance().state.tabColorEnabled) {
                 if (timer.isRunning) timer.stop()
                 content.setTabColor(null)
                 return
             }
-            if (newState.isBusy || newState.isWaiting || newState == com.workspect.plugin.ccglyph.status.ClaudeState.ERROR) {
+            if (newState.isBusy || newState.isWaiting || newState == com.duckyman.plugin.ccglyph.status.ClaudeState.ERROR) {
                 if (!timer.isRunning) { on = false; timer.start() }
             } else {
                 if (timer.isRunning) timer.stop()
@@ -230,14 +230,14 @@ internal object CCGlyphContent {
 
         private fun colors(): Pair<java.awt.Color, java.awt.Color>? = when (state) {
             // Deep tones so the tab title stays readable on the coloured tab.
-            com.workspect.plugin.ccglyph.status.ClaudeState.THINKING ->
+            com.duckyman.plugin.ccglyph.status.ClaudeState.THINKING ->
                 java.awt.Color(0x4c, 0x1d, 0x95) to java.awt.Color(0x1e, 0x3a, 0x8a)   // purple ↔ blue
-            com.workspect.plugin.ccglyph.status.ClaudeState.TOOL_RUNNING ->
+            com.duckyman.plugin.ccglyph.status.ClaudeState.TOOL_RUNNING ->
                 java.awt.Color(0x1e, 0x3a, 0x8a) to java.awt.Color(0x0e, 0x74, 0x9e)   // blue ↔ cyan
-            com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_PERMISSION,
-            com.workspect.plugin.ccglyph.status.ClaudeState.WAITING_INPUT ->
+            com.duckyman.plugin.ccglyph.status.ClaudeState.WAITING_PERMISSION,
+            com.duckyman.plugin.ccglyph.status.ClaudeState.WAITING_INPUT ->
                 java.awt.Color(0xb4, 0x53, 0x09) to java.awt.Color(0x42, 0x3a, 0x06)   // amber blink
-            com.workspect.plugin.ccglyph.status.ClaudeState.ERROR ->
+            com.duckyman.plugin.ccglyph.status.ClaudeState.ERROR ->
                 java.awt.Color(0xb9, 0x1c, 0x1c) to java.awt.Color(0x7f, 0x1d, 0x1d)   // red blink (matches the beam's ERROR palette)
             else -> null
         }

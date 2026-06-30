@@ -1,4 +1,4 @@
-package com.workspect.plugin.ccglyph.profile
+package com.duckyman.plugin.ccglyph.profile
 
 import com.intellij.openapi.actionSystem.ActionToolbarPosition
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
@@ -12,7 +12,7 @@ import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.FormBuilder
-import com.workspect.plugin.ccglyph.CCGlyphContent
+import com.duckyman.plugin.ccglyph.CCGlyphContent
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension

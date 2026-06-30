@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.workspect.plugin.ccglyph</id>
+    <id>com.duckyman.plugin.ccglyph</id>
     <name>Claude Code Glyph</name>
     <version>1.0.0</version>
     <vendor url="https://github.com/duckyman-ai/ccglyph">Duckyman</vendor>
@@ -49,31 +49,31 @@
         <toolWindow
             id="CCGlyph"
             anchor="bottom"
-            factoryClass="com.workspect.plugin.ccglyph.CCGlyphTerminalFactory"
+            factoryClass="com.duckyman.plugin.ccglyph.CCGlyphTerminalFactory"
             icon="/icons/ccglyph.svg"
             canCloseContents="true"/>
 
         <!-- Auto-activate the tool window when a project opens -->
-        <projectActivity implementation="com.workspect.plugin.ccglyph.CCGlyphStartupActivity"/>
+        <projectActivity implementation="com.duckyman.plugin.ccglyph.CCGlyphStartupActivity"/>
 
         <!-- Global terminal settings, persisted in ccglyph.xml -->
         <applicationService
-            serviceImplementation="com.workspect.plugin.ccglyph.CCGlyphSettings"/>
+            serviceImplementation="com.duckyman.plugin.ccglyph.CCGlyphSettings"/>
         <applicationConfigurable
             groupId="tools"
             displayName="Claude Code Glyph"
             id="ccglyph.settings"
-            instance="com.workspect.plugin.ccglyph.CCGlyphSettingsConfigurable"/>
+            instance="com.duckyman.plugin.ccglyph.CCGlyphSettingsConfigurable"/>
 
         <!-- Claude Code launch profiles — edited on the Claude Code Glyph settings page (embedded table). -->
         <applicationService
-            serviceImplementation="com.workspect.plugin.ccglyph.profile.ProfileService"/>
+            serviceImplementation="com.duckyman.plugin.ccglyph.profile.ProfileService"/>
 
         <!-- Native side-by-side split (Split Right/Down, etc. — the platform's own actions, like the built-in terminal).
              Only effective on IDE builds that have this extension point (2024.2+); ignored on older builds. -->
         <toolWindow.splitContentProvider
             toolWindowId="CCGlyph"
-            implementationClass="com.workspect.plugin.ccglyph.CCGlyphSplitContentProvider"/>
+            implementationClass="com.duckyman.plugin.ccglyph.CCGlyphSplitContentProvider"/>
 
         <!-- Balloon notifications: context-window + rate-limit proximity warnings. -->
         <notificationGroup id="ccglyph" displayType="BALLOON"/>
